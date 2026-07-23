@@ -1,0 +1,73 @@
+---
+title: "Hashless KV"
+subtitle: "HashMap-compatible storage with built-in spatial indexing"
+date: 2026-07
+date-format: "MMMM, YYYY"
+format:
+  pdf:
+    fontsize: 10pt
+    geometry:
+        - margin=14mm
+  html: {}
+---
+
+{{< include ./_include/_title_meta_items.qmd >}}
+
+## The insight
+
+Every key-value store in production today pays the cost of a hash function on every operation. SipHash, xxHash, SHA-256: these all solve the same problem — turning a variable-length key into a bucket index. The hash function is inseparable from the lookup.
+
+Tagma replaces the hash function with a structural coordinate transformation. The result is a KV store that:
+
+- Accepts `&str` keys at **22 ns/op** — at parity with HashMap's 24 ns
+- Provides prefix scan, axis filter, and range query as **built-in operations**, not add-on indexes
+- Is **scale-invariant**: 22 ns at 1k operations, 22 ns at 10M operations — no resizing, no rehashing
+- Has **zero collisions** — the coordinate mapping is a bijection for fixed-size keys
+
+## The market
+
+The global in-memory data store market was valued at $8.7B in 2025 and is projected to reach $32.1B by 2032. Every database engine, caching layer, and AI inference pipeline relies on KV lookups as the critical path. The current solutions (Redis, Memcached, RocksDB) are all hash-based or tree-based, requiring separate index structures for any query beyond exact key match.
+
+Tagma's hashless KV is the first fundamental change to the KV indexing layer in 50 years.
+
+## The product
+
+Hashless KV is a drop-in replacement for existing KV stores that:
+
+1. **Requires no code changes** — same `insert(key, value)`, `get(key)`, `remove(key)` API
+2. **Runs faster at scale** — flat 22 ns latency regardless of dataset size
+3. **Adds spatial indexing for free** — prefix scan, axis projection, range query without secondary indexes
+
+Available in two deployment models:
+
+| Model | Description | Target |
+|-------|-------------|--------|
+| **Hashless KV Embedded** | In-process library, zero dependencies | Application developers |
+| **Hashless KV Server** | Network-attached, Redis-protocol compatible | Enterprise infrastructure |
+
+## The open-core model
+
+The core engine (Tagma coordinate space, Coord, CoordPath, CoordSpace) is open source under Apache 2.0. The commercial product layers on:
+
+- **Distributed coordination** — multi-node routing via recursive coordinate space embedding
+- **Disk-backed persistence** — coordinate-as-address eliminates the index tree
+- **Hardware acceleration** — Tagma decoder as a RISC-V XIF coprocessor
+- **Enterprise features** — replication, snapshots, access control
+
+## The traction
+
+The reference implementation is fully functional and benchmarked:
+
+- 28 unit tests, 39 integration tests, 8 doc-tests — all passing
+- CoordKV2 (fixed 2-byte): **22 ns get, 19 ns insert** — faster than HashMap
+- 3-scale workload verified: **22 ns flat across 10k, 1M, 10M operations**
+- CoordKey type: compile-time length enforcement via `const fn from_str_const`
+- Full Rust implementation, `#![no_std]` core, Apache 2.0
+
+## The team
+
+Built on the Tagma coordinate space — the first structural addressing system since the hash table. Backed by the SSCCS Foundation. Hardware prototype in planning with a turnkey manufacturer for Q1 2027.
+
+## Contact
+
+[ssccs.org](https://ssccs.org) · [Hashless KV documentation](https://docs.ssccs.org/projects/syntagma/tagma/kv.html)
