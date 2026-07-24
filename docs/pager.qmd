@@ -1,100 +1,110 @@
 ---
-title: "CoordStore: The Tableless Storage Engine"
-subtitle: "Eliminates hashing, indexing, and their hidden costs—replacing them with deterministic arithmetic over a fixed coordinate space."
-date: 2026-07
-date-format: "MMMM, YYYY"
+title: "CoordStore: The Spatial Database"
+subtitle: "Coordinates, not tables. Arithmetic, not hashing. O(1), not O(log N)."
+version-prefix: cs-1
+version-mark: true
+generate-title-meta: false
 format:
   pdf:
-    pdf-engine: xelatex    
     fontsize: 10pt
     geometry:
-        - margin=16mm
-        - bottom=1.6cm
-        - footskip=1cm
+        - margin=14mm
+    include-in-header:
+      text: |
+        \usepackage{xcolor}
+        \usepackage{microtype}
+        \setkeys{Gin}{width=\linewidth,height=\textheight,keepaspectratio}
+        \addtokomafont{disposition}{\rmfamily}
+        \input{./_files/_metadata.tex}
+        \DeclareTOCStyleEntry[beforeskip=6pt]{default}{section}
+        \DeclareTOCStyleEntry[beforeskip=0pt]{default}{subsection}
+        \makeatletter
+        \def\@maketitle{
+          {\LARGE \bfseries \@title \par}
+          \vspace{0.3em}
+          {\large \@subtitle \par}
+                \vspace{1em}
+                {\large \texttt{\href{https://www.linkedin.com/in/stells}{\@author}}, \authorrole, \texttt{\href{mailto:\authoremail}{\authoremail}} \par}
+                \vspace{0.3em}
+                {\normalsize \texttt{\href{https://coordstore.io}{\affiliationname}} \par}
+                \vspace{2em}
+        }
+        \makeatother
   html: {}
+metadata-files:
+  - ./_include/author.founder.yml
+  - ./_include/format.pdf.yml
+  - ./_include/format.html.yml
 ---
 
-## 1. The Problem: The Hidden Tax of Hashing & Indexing
+## The Problem: The Hashing-Indexing Tax
 
-Hash functions are a hidden tax on every KV system. SipHash, xxHash, SHA-256: every lookup pays the cost of turning a key into a bucket index, then resolves collisions, resizes the table, and degrades p99 as the working set exceeds cache capacity. At 10M operations, HashMap per-op latency rises 19% from L2 to DRAM — and the trend continues with scale.
+Every KV system pays a hidden cost: hashing and indexing. Lookups require hash computation, collision resolution, and tree traversals. As data grows, p99 latency degrades, caches thrash, and indexes amplify writes 10x–50x — wasting storage and demanding continuous DBA tuning.
 
-Meanwhile, secondary indexes (B-trees, LSM-trees) force 10x–50x write amplification, waste 20-50% of storage, and demand continuous DBA tuning. In the 2026 AI era, these hidden taxes break SLAs and inflate cloud bills.
+The KV market's leading products prove the limits of this paradigm, not its health. Redis's triple-license model (AGPLv3/RSALv2/SSPLv1) has driven 75% of users to seek alternatives.[^redis] Valkey forks BSD code but inherits the same architecture. In July 2026, an autonomous AI agent discovered 19 Redis zero-days — one became a working RCE exploit in 27 minutes. Some vulnerabilities remained unfixed for seven months.
 
----
+**The root cause is structural:** hash tables destroy locality, indexes amplify writes, and scripting layers multiply attack surfaces. The market does not need a faster Redis or a safer fork. It needs a way out of the hashing-indexing paradigm entirely.
 
-## 2. The Solution: Arithmetic, Not Traversal
+## The Solution: Eliminate Hashing and Indexing
 
-CoordStore replaces hash functions and indexes with a **fixed 16-bit coordinate space** derived from a **three-axis composition space** (19×21×28) with closed-form arithmetic. Every key maps to a coordinate via linearization:
+CoordStore removes the root cause — hashing and indexing themselves.
 
-`(c0 × 11172 + c1) × 11172 + c2`
+- **No hash functions** → No collisions to resolve. No rehashing. No resize pauses.
+- **No indexes** → No B-trees to traverse. No LSM compaction. No write amplification.
+- **No scripting engine** → No Lua VM. No module loader. No RDB parser. Attack surface = arithmetic only.
 
-This arithmetic determines the exact memory or storage offset—no hashing, no collisions, no resizing.
+Every operation is a single arithmetic step — no lookups, no traversals, no hash probes. The result is deterministic, predictable performance at any scale.
 
-- **Zero-Index Addressing:** The coordinate is the address. O(1) array access, no hash probes, no tree traversals.
-- **Native Multi-Axis Queries:** Filters across axes are bitwise AND (94 ns), not full scans or index intersections.
+## Storage Model: Projection, Not Logging
 
----
+CoordStore projects data directly onto storage — no write-ahead log, no compaction, no garbage collection.
 
-## 3. Storage Model: Projection, Not Logging
+- **No WAL** → Nothing to replay on crash.
+- **Instant Recovery** → Crash recovery is a memory remap (milliseconds), not log replay (minutes to hours).[^recovery]
+- **Write Amplification = 1x** → SSD lifespan extends proportionally.
 
-CoordStore projects the coordinate space directly onto storage via memory-mapped I/O (mmap). Traditional mmap usage treats it as a fast I/O buffer, serializing B-trees on top. CoordStore uses mmap as the **physical address space itself**—the coordinate arithmetic maps directly to byte offsets.
+## Performance Benchmarks (Measured, Not Estimated)
 
-- **No WAL, No Compaction:** No write-ahead log to replay, no garbage collection to schedule.
-- **Instant Recovery:** Crash recovery is a memory remap (milliseconds), not log replay (minutes to hours).
-- **Write Amplification = 1x:** SSD lifespan extends proportionally.
+| Metric | CoordStore | Traditional | Advantage |
+|--------|------------|-------------|-----------|
+| Single get (string key) | **22.5 ns** | 23.8 ns | 1.1× |
+| Single get (native) | **0.39 ns** | N/A | 60× below |
+| Batch get (1K keys) | **2.26 µs** | 22.76 µs | 10× |
+| Latency vs scale | **21.5 ns flat** | +19% at 10M | Scale-free |
+| Prefix scan (nonexist) | **1.65 ns** | 23.05 ms | 14.0M× |
+| Multi-axis (3 axes) | **94 ns** AND | 13 µs scan | 138× |
+| Spatial proximity | **96–353 Melem/s** | N/A | New capability |
+| 125M keys memory | **119 MB fixed** | ≥200 MB | Exact planning |
 
----
+> p99 = p50. Performance is deterministic across all scales.
 
-## 4. Performance Benchmarks (Measured, Not Estimated)
+## The Business Case: TCO Reduction
 
-| Metric | CoordStore | Rust HashMap / Traditional | Advantage |
-|--------|------------|----------------------------|-----------|
-| Single get (string key) | **22.5 ns** | 23.8 ns | 1.1× faster |
-| Single get (native coordinate) | **0.39 ns** | N/A | 60× below HashMap |
-| Batch get (1K keys) | **2.26 µs** | 22.76 µs | 10× faster |
-| Latency vs scale (10k→1M→10M) | **21.5 ns flat** | 21.9→23.8 ns (+19%) | Scale-invariant |
-| Prefix scan (nonexistent) | **1.65 ns** | 23.05 ms | 14.0M× faster |
-| Multi-axis query (3 axes) | **94 ns** (bitwise AND) | 13 µs (full scan) | 138× faster |
-| Spatial region query (proximity) | **96–353 Melem/s** | Not possible (hash digests lack structure) | New capability |
-| Memory footprint (125M keys) | **119 MB fixed** | Variable (≥200 MB) | Exact capacity planning |
+| Cost Factor | CoordStore | Traditional | Impact |
+|-------------|------------|-------------|--------|
+| Storage overhead | **0%** | 20-50% (indexes) | Direct cloud savings |
+| Write amplification | **1×** | 10-50× | Extended SSD lifespan |
+| Memory predictability | **119 MB fixed** | Unpredictable | Zero OOM |
+| DBA operations | **Zero** | Continuous tuning | Reallocate to core AI |
+| Latency SLA | **Flat** | Degrades with scale | Guaranteed SLAs |
+| Security surface | **Arithmetic only** | Lua + Modules + RDB parsers | No RCE vector |
 
-> *p99 = p50. Performance is deterministic across all scales.*
+## Key Differentiators
 
----
-
-## 5. The Business Case: TCO Reduction
-
-CoordStore shifts value from "faster queries" to **radical infrastructure cost reduction**.
-
-| Cost Factor | Traditional KV / Vector DB | CoordStore | Business Impact |
-|-------------|----------------------------|------------|------------------|
-| Storage Overhead | +20–50% (indexes) | **0%** | Direct cloud storage savings |
-| Write Amplification | 10×–50× | **1×** | Extended SSD lifespan, lower I/O |
-| Memory Predictability | Unpredictable (cache thrashing) | **Fixed 119 MB** | Zero OOM, exact capacity planning |
-| DBA Operations | Continuous tuning, rebalancing | **Zero** | Reallocate headcount to core AI |
-| Latency SLA | Degrades with scale | **Flat across scale** | Guaranteed SLAs |
-
----
-
-## 6. Key Differentiators (Structural, Not Algorithmic)
-
-- **Zero collisions** — deterministic addressing, no collision resolution, no rehashing.
-- **No resizing** — fixed memory footprint (dense) or per-prefix sparse allocation.
-- **Predictable latency** — O(1) array access, no LRU, no GC, no compaction jitter.
-- **Spatial region queries** — CoordCube interprets coordinates as a D-dimensional grid, enabling proximity search (96–353 Melem/s), bounding box enumeration (699 Melem/s), and distance metrics (~320 ps). No hash-based system can replicate this: a HashMap key is a digest with no spatial structure; a CoordStore coordinate is an address with embedded geometry.
+- **Zero collisions** — deterministic addressing, no collision resolution.
+- **No resizing** — fixed memory footprint; no pause-the-world events.
+- **Predictable latency** — O(1) across all scales, no GC, no compaction jitter.
+- **Spatial queries** — Proximity search, bounding box, distance metrics as primitive operations. No hash-based system can replicate this — a hash digest has no spatial structure; a CoordStore coordinate is an address with embedded geometry.
+- **No attack surface** — No Lua VM, no module loader, no RDB deserializer. Just arithmetic.
 - **Hardware ready** — 300-gate decoder specification for ASIC/FPGA.
 
----
+## The Unfair Moat
 
-## 7. The Unfair Moat
-
-CoordStore is not an algorithmic tweak; it is a **structural discovery** based on a unique property of an international character standard: a contiguous 16-bit block with closed-form composition (19×21×28) and three independent axes. This is the *only* such block in the entire Unicode standard that satisfies all required conditions for arithmetic addressing. Competitors can optimize algorithms but cannot replicate the underlying structural conditions.
+CoordStore is not an algorithmic tweak; it is a **structural discovery** that competitors cannot replicate by tuning existing approaches. While others optimize hash functions, cache policies, or index algorithms, CoordStore eliminates the underlying hash-index paradigm entirely.
 
 Open-core (Apache 2.0) timestamps priority; enterprise layers (persistence, networking, security) are commercial.
 
----
-
-## 8. Deployment Models & Use Cases
+## Deployment Models & Use Cases
 
 | Model | Description | Target |
 |-------|-------------|--------|
@@ -102,30 +112,29 @@ Open-core (Apache 2.0) timestamps priority; enterprise layers (persistence, netw
 | **Server** | Network-attached, persistence, clustering, API-compatible | Enterprise infrastructure |
 
 **Use Cases:**
-- **LLM KV cache** — O(1) prefix lookup, zero hash computation. Production cache sizes covered by 2–4 coordinates.
-- **Embedded systems** — 22 KB array for 11K identifiers, single load per lookup.
-- **Graph / multi-dimensional** — Adjacency is bitwise AND over 175 machine words—no index intersection.
-- **General KV** — Drop-in replacement with deterministic performance, no collision budget, no resizing.
 
----
+| Use Case | CoordStore Advantage |
+|----------|---------------------|
+| Redis/Valkey Alternative | Zero-hash, zero-index KV, deterministic p99 latency[^redis-protocol] |
+| LLM KV cache | O(1) prefix lookup, zero hash, production-scale coverage |
+| Embedded systems | 22 KB array, 11K identifiers, single load per lookup |
+| Graph / multi-dimensional | Bitwise AND adjacency — no index intersection |
+| Security-sensitive workloads | No Lua, no modules, no RDB parsers |
 
-## 9. Pure Software, Global Scale
+## Pure Software, Global Scale
 
-CoordStore is a pure software layer—no hardware supply chain, no MOQs, no logistics. Deployable on cloud, on-prem, or hybrid—immediate global distribution. IP licensing to semiconductor manufacturers is an optional high-margin channel.
+CoordStore is a pure software layer — no hardware supply chain, no MOQs, no logistics. Deployable on cloud, on-prem, or hybrid — immediate global distribution. IP licensing to semiconductor manufacturers is an optional high-margin channel.
 
----
+## Strategic Summary
 
-## 10. Strategic Summary
+CoordStore is not a faster hash table or a safer database fork. It is a structural replacement for hashing and indexing themselves — the first fundamental change to the KV indexing layer since the hash table.
 
-The market fights over who builds the best hash or index. CoordStore eliminates both. We are not building a faster database; we are building the end of the database-as-we-know-it.
+Every operation is deterministic: no collisions, no resizing, no compaction. O(1) across all scales. External events (license shifts, zero-day exploits) accelerate the market's need. But CoordStore stands on its own: arithmetic, not hashing. Coordinates, not tables. O(1), not O(log N).
 
-**CoordStore: Stop Hashing. Stop Indexing. Start Navigating.**
+## Footnotes
 
----
+[^redis]: Redis shifted from BSD to AGPLv3/RSALv2/SSPLv1 (2024). Percona: 75% seeking alternatives. July 2026: Kimi K3 AI found 19 zero-days (90 min), one RCE (27 min). Some reported Dec 2025, unfixed for 7 months. [Details](https://thehackernews.com/2026/07/kimi-k3-agents-found-redis-zero-days.html) · [PoC](https://github.com/Lyutoon/redis-RCE-poc) · [Percona](https://www.percona.com/blog/redis-users-want-a-change/)
 
-## Technical Backing
+[^recovery]: Instant recovery via mmap remap is available in CoordStore v2+. Current open-core (v1.x) supports in-memory and mmap-based persistence.
 
-> *The complete reference implementation and benchmark suite are available in the `tagma-kv` crate under Apache 2.0, timestamped as open-source prior art.*
->
-> **📎** [docs.ssccs.org/projects/syntagma/tagma/kv.llms.md](https://docs.ssccs.org/projects/syntagma/tagma/kv.llms.md)
-> *(Contains raw benchmark data (0.39 ns – 22.5 ns), CoordPath/CoordSet implementation logic, and CoordCube spatial query extensions.)*
+[^redis-protocol]: Redis protocol compatibility (RESP) is on the CoordStore roadmap. Embedded and server APIs available now.

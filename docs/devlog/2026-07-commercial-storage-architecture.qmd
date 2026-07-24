@@ -6,6 +6,8 @@ date-format: "MMMM, YYYY"
 format: html
 ---
 
+{{< include ../_include/_title_meta_items.qmd >}}
+
 ## The Commercial Storage Hierarchy
 
 The CoordSpace family provides three storage strategies with distinct tradeoffs:
@@ -32,7 +34,7 @@ Unlike CoordSpace2 (119 MB mandatory, regardless of occupancy), CoordSpaceM3 pay
 
 Traditional mmap databases (LMDB, RocksDB, SQLite) use mmap as an **I/O acceleration layer**:
 
-```
+```text
 Traditional mmap:  key(string) → B-Tree search → mmap offset → value
                         O(log N)                direct
                     (index on top of mmap)
@@ -46,7 +48,7 @@ The difference is not about mmap itself, but about **key design**. Traditional s
 
 CoordSpaceM3 works because the Coord space (19×21×28 = 11,172) is a closed-form composition formula with a natural row-major linearization:
 
-```
+```text
 index(c0, c1, c2) = ((c0 × 11172) + c1) × 11172 + c2
 ```
 
@@ -75,7 +77,7 @@ Patent strategy may still apply to specific implementation methods (e.g., lazy p
 
 CoordCube addresses the tree walk problem at the **query layer**, not the storage layer:
 
-```
+```text
 CoordCube::proximity(r=1):
   → generates 9 paths in one BoundingBoxIter pass
   → each path looked up individually in tree

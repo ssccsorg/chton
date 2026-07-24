@@ -6,6 +6,8 @@ date-format: "MMMM, YYYY"
 format: html
 ---
 
+{{< include ../_include/_title_meta_items.qmd >}}
+
 ## Core Thesis
 
 Tagma's N-character keys (`CoordPath<N>`) need not be interpreted strictly as 1D
@@ -18,7 +20,7 @@ interpretation layer.**
 
 ## Path vs Cube Duality
 
-```
+```text
                     ┌──────────────────┬──────────────────┐
                     │   CoordPath      │   CoordCube      │
                     │   (1D, fine)     │   (D-dim, coarse) │
@@ -125,7 +127,7 @@ bounding box, and distance queries over the swarm state space.
 
 "What if characters weren't a 1D path but a toy cube?"
 
-```
+```text
 CoordPath<6> = [s0, s1, s2, s3, s4, s5]  (flat 1D)
 CoordCube<3, 2>: dim0=[s0,s1] dim1=[s2,s3] dim2=[s4,s5]  (3D cube)
 ```

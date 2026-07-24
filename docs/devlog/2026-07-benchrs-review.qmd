@@ -6,6 +6,8 @@ date-format: "MMMM, YYYY"
 format: html
 ---
 
+{{< include ../_include/_title_meta_items.qmd >}}
+
 ## Channel 1: CoordPath (existing benchmarks)
 
 | Benchmark | Measures | Status |
