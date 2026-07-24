@@ -1,7 +1,6 @@
 # Shared
-# Pre-render hook (optional): uncomment to run a script before each render.
-# project:
-#   pre-render: python3 _quarto_pre-render.py
+project:
+  pre-render: python3 _quarto_pre-render.py
 csl: _include/ieee.csl
 link-citations: true
 execute:   
