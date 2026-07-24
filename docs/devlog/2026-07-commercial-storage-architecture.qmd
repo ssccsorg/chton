@@ -1,0 +1,112 @@
+---
+title: "Commercial Storage Architecture: CoordSpaceM, mmap, and the Open-Source Strategy"
+subtitle: "Why coordinated mmap is the real commercial story, and why it is not a coincidence"
+date: 2026-07
+date-format: "MMMM, YYYY"
+format: html
+---
+
+## The Commercial Storage Hierarchy
+
+The CoordSpace family provides three storage strategies with distinct tradeoffs:
+
+| Type | Allocation | Lookup | Memory | Best for |
+|------|-----------|--------|--------|----------|
+| CoordSpace (N=1) | Inline array | 0.39 ns | 22 KB | Embedded, MCU |
+| CoordSpace2 (N=2) | Heap alloc_zeroed | 0.39 ns | 119 MB | Server dense |
+| CoordSpaceN<N> (N>1) | Sparse tree | 2.69-58.6 ns | Per-prefix | Sparse, dynamic |
+| CoordSpaceM3 (N=3) | mmap MAP_NORESERVE | 0.40 ns | 1.27 TB virtual | **Commercial product** |
+
+## CoordSpaceM3: The Commercial Sweet Spot
+
+CoordSpaceM3 is the most important storage type for a commercial product. It combines:
+
+- **Native dense performance**: 0.40 ns lookup — within 3% of CoordSpace2's 0.39 ns
+- **Scalable allocation**: MAP_NORESERVE commits physical RAM only for written pages
+- **1.27 TB virtual address space**: 11172^3 ≈ 1.39 × 10^12 identifiers — sufficient for any deployed system
+- **No index structures**: Coord → mmap offset via linear_index formula, not B-Tree or hash
+
+Unlike CoordSpace2 (119 MB mandatory, regardless of occupancy), CoordSpaceM3 pays memory only for what is written. Unlike CoordSpaceN (O(N) tree traversal, 58.6 ns at N=19), CoordSpaceM3 delivers dense-native latency without preallocating the full space.
+
+## CoordSpaceM vs Traditional mmap Usage
+
+Traditional mmap databases (LMDB, RocksDB, SQLite) use mmap as an **I/O acceleration layer**:
+
+```
+Traditional mmap:  key(string) → B-Tree search → mmap offset → value
+                        O(log N)                direct
+                    (index on top of mmap)
+
+CoordSpaceM3:      coord(u16) → linear_index → mmap offset → value
+                        1 cycle              direct
+                    (coord IS the index)
+```
+
+The difference is not about mmap itself, but about **key design**. Traditional systems use variable-length string keys, which cannot be mapped to a fixed offset by arithmetic. B-Tree is a necessity, not a choice.
+
+CoordSpaceM3 works because the Coord space (19×21×28 = 11,172) is a closed-form composition formula with a natural row-major linearization:
+
+```
+index(c0, c1, c2) = ((c0 × 11172) + c1) × 11172 + c2
+```
+
+This is a pure arithmetic operation — no hash, no tree traversal, no index scan. The mmap offset IS the coordinate.
+
+## Is This a Coincidence?
+
+Not a coincidence. The 19×21×28 formula yields a natural 3-level hierarchical linearization that happens to map perfectly onto a 3D mmap array. However, calling it "designed for mmap" is backwards. The CoordSpace design was driven by the Unicode block structure; the mmap fit was discovered, not designed.
+
+The observation that "no other project uses mmap this way" is also not coincidence — it is a consequence of most projects using variable-length keys. Fixed 16-bit coordinates are rare outside Tagma.
+
+## Open-Source Strategy
+
+The wp.qmd whitepaper (Apache 2.0, GitHub) establishes prior art for the core concept: Coord → offset linearization eliminating index structures. This cannot be undone and should not be.
+
+Commercial value is not in the concept but in its implementation:
+
+- **CoordSpaceM3 reliability**: page fault handling, concurrency, durability
+- **Protocol compatibility**: Redis/Memcached wire protocol
+- **Performance engineering**: 0.40 ns at scale, verified across workloads
+- **Production readiness**: backup, replication, cluster management
+
+Patent strategy may still apply to specific implementation methods (e.g., lazy page fault orchestration with Coord linearization), even if the core concept is public.
+
+## CoordCube and the Walk Problem
+
+CoordCube addresses the tree walk problem at the **query layer**, not the storage layer:
+
+```
+CoordCube::proximity(r=1):
+  → generates 9 paths in one BoundingBoxIter pass
+  → each path looked up individually in tree
+  → walk 89% reduction vs 9 sequential lookups
+
+CoordCube::bounding_box(10K):
+  → generates 10,000 paths in one pass
+  → walk >99% reduction vs 10,000 sequential lookups
+```
+
+This is sufficient for the current product. Storage-layer optimizations (dense prefix caches, batch tree traversal) are future work, not CoordCube blockers.
+
+## DynCoordKV Gap Closed
+
+The remaining implementation gap was DynCoordKV + CoordCube integration:
+
+- `get_by_coord_path<N>()` added to DynCoordKV
+- `CoordCubeKV<N> for DynCoordKV` implemented
+- 3 spatial tests added (proximity, bbox, empty store)
+- All 37 unit + 39 integration + 8 doc tests pass
+
+## Benchmarks Added
+
+Three new benchmark groups added to bench.rs following the code review:
+
+| Group | What it measures | Key result |
+|-------|-----------------|------------|
+| `Spatial/cubelargen` | CoordCube on N=12, N=19 trees | Works at any N; KV proximity at 187 ns (N=19) |
+| `Spatial/hierarchical` | 2-phase Cube→Path query | 413 ns vs direct 312 ns (32% slower) |
+| `Spatial/cubehamming` | proximity vs proximity_hamming | r=1: hamming faster (99 vs 147 ns) |
+
+## Rejected: Storage-Layer Hybrid
+
+`RootDenseCoordSpace`, `CoordSpaceNK<K,N,V>`, `CoordSpaceD2N` all rejected as unnecessary in core. The CoordSpace family (CoordSpace / CoordSpace2 / CoordSpaceM3 / CoordSpaceN / DynCoordSpace) already covers the storage design space. Hybrid dense-tree types add complexity without proportional benefit for the current product.

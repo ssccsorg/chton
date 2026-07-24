@@ -1,0 +1,144 @@
+---
+title: "CoordCube: Spatial Interpretation Layer for Tagma"
+subtitle: "Architecture, benchmarks, and the Path vs Cube duality"
+date: 2026-07
+date-format: "MMMM, YYYY"
+format: html
+---
+
+## Core Thesis
+
+Tagma's N-character keys (`CoordPath<N>`) need not be interpreted strictly as 1D
+linear sequences. They can also be viewed as multi-dimensional cubes, unlocking
+spatial operations (proximity, bounding box, range queries, distance metrics)
+impossible with a linear view.
+
+**CoordCube is not a replacement for CoordPath — it is an additional, optional
+interpretation layer.**
+
+## Path vs Cube Duality
+
+```
+                    ┌──────────────────┬──────────────────┐
+                    │   CoordPath      │   CoordCube      │
+                    │   (1D, fine)     │   (D-dim, coarse) │
+┌───────────────────┼──────────────────┼──────────────────┤
+│  Dense Storage    │  0.39 ns O(1)   │  N/A (view only)  │
+│  (CoordSpace)     │  single access  │                   │
+├───────────────────┼──────────────────┼──────────────────┤
+│  Tree Storage     │  2.69-58.6 ns   │  96-699 Melem/s  │
+│  (CoordSpaceN)    │  O(N) linear    │  region gen      │
+└───────────────────┴──────────────────┴──────────────────┘
+```
+
+### Architectural Rules
+
+1. **CoordCube is NOT storage.** It is a view over CoordPath bytes.
+   - `CoordCube { path: CoordPath<N> }` — has-a relationship
+   - No `place()`/`at()`/`vacate()` — only `from_path()`/`to_path()`/`axis()`/`coord_at()`
+   - Zero memory overhead: register-only arithmetic
+
+2. **CoordSpace family is the ONLY storage.** CoordSpace, CoordSpace2, CoordSpaceN,
+   DynCoordSpace, CoordSpaceM3 — these backends have `place()`, `at()`, `vacate()`.
+
+3. **Two non-native combinations:**
+   - **Tree + CoordPath**: O(N) sequential lookup (2.69-58.6 ns)
+   - **Tree + CoordCube**: spatial queries at near-native throughput (96-699 Melem/s)
+
+4. **CoordCube generates CoordPaths for the store.** The store only understands
+   CoordPath. CoordCube is a path generator, not a store.
+
+## Why This Architecture
+
+The 1D memory layout is a von Neumann constraint. `CoordPath<N>` stores N characters
+as `[Coord; N]`. The cube exists in the **interpretation layer**, not memory layout.
+This is a software compensation for hardware that lacks native multi-dimensional
+addressing.
+
+The Tagma hardware project (SSCCS) eliminates this: 3 parallel decoders
+(5-to-19, 5-to-21, 5-to-28) map Axis0/Axis1/Axis2 directly to physical wordlines
+in a 19×21×28 bitcell array. In that hardware, the cube IS the physical layout.
+
+## Measured Performance
+
+### Path vs Cube: 9-path neighborhood (D=2, R=1, r=1)
+
+| Mode | Time | vs Sequential |
+|------|------|---------------|
+| Path gen only (empty tree) | 15.4 ns | baseline |
+| Tree + CoordPath (9 seq) | 159 ns | — |
+| Tree + CoordCube (dense 10K) | 287 ns | 1.8x slower |
+| Tree + CoordCube (sparse 9) | 48 ns | **3.3x faster** |
+
+Cube is slower in dense stores (Vec push overhead) but faster in sparse ones.
+Its true value: CoordPath cannot do proximity/bbox/distance at all.
+
+### Spatial Query Throughput (path gen only)
+
+| Operation | Throughput | Time |
+|-----------|-----------|------|
+| Proximity r=0 (1 path) | 55 Melem/s | 18 ns |
+| Proximity r=1 (9 paths) | 96 Melem/s | 93 ns |
+| Proximity r=5 (121 paths) | 353 Melem/s | 343 ns |
+| Bounding box 10K paths | 699 Melem/s | 14.6 µs |
+
+Throughput **increases with radius** — fixed setup cost (~8.6 ns) amortizes.
+
+### Distance Metrics
+
+| Metric | Time | vs CoordSpace lookup (390 ps) |
+|--------|------|--------------------------------|
+| Hamming (3-D) | 322 ps | 0.83x |
+| Euclidean (3-D) | 321 ps | 0.82x |
+| Manhattan (3-D) | 316 ps | 0.81x |
+
+All cheaper than a single array lookup — register-only, no memory access.
+
+### KV Proximity (end-to-end, CoordCubeKV trait)
+
+| Store | Found | Time | Melem/s |
+|------|-------|------|---------|
+| Dense (10K) | 9 | 285 ns | 31.4 |
+| Sparse (9) | 9 | 48 ns | 188 |
+| Empty | 0 | 15.4 ns | 584 |
+
+Breakdown (dense): path gen 5% (15 ns), tree traversal 69% (196 ns), Vec push 26% (74 ns).
+
+## The CoordSpaceN Tree Problem
+
+Tree lookup scales O(N): N=1 (0.39 ns) to N=19 (58.6 ns). The tree exists because
+dense arrays are infeasible at large N (N=3 → 15 TB). CoordCube mitigates this by
+generating multiple paths at once via adjacency-driven throughput.
+
+## The HashlessKV Connection
+
+HashlessKV uses CoordPath for base KV (22.5 ns get) and CoordCube as a hidden
+differentiator: spatial queries no hash-based KV can replicate.
+
+## The neXus IO Connection
+
+neXus requires n-dimensional state space for its FIH (Fact, Intent, Hint) model.
+CoordCube at D=3, R=1 maps directly to (F, I, H) triples, enabling proximity,
+bounding box, and distance queries over the swarm state space.
+
+## Original Concept: The Toy Cube
+
+"What if characters weren't a 1D path but a toy cube?"
+
+```
+CoordPath<6> = [s0, s1, s2, s3, s4, s5]  (flat 1D)
+CoordCube<3, 2>: dim0=[s0,s1] dim1=[s2,s3] dim2=[s4,s5]  (3D cube)
+```
+
+The cube is an **interpretation**, not a memory layout. Adjacency is defined in
+cube space (L∞ distance), not flat array proximity. This interpretation is what
+enables spatial queries.
+
+## Granularity Tradeoff
+
+| | CoordPath | CoordCube |
+|--|-----------|-----------|
+| Independent axes | N (every character) | D (groups of R characters) |
+| Precision per axis | 11,172 (one character) | 11,172^R (R bundled) |
+| Granularity | 1 character (fine) | R characters (coarse) |
+| Performance driver | Per-access latency (0.39 ns) | Adjacency throughput (96-699 Melem/s) |

@@ -1,0 +1,66 @@
+---
+title: "bench.rs: Code Review and Gap Analysis"
+subtitle: "CoordCube benchmarks against the Path vs Cube duality"
+date: 2026-07
+date-format: "MMMM, YYYY"
+format: html
+---
+
+## Channel 1: CoordPath (existing benchmarks)
+
+| Benchmark | Measures | Status |
+|-----------|----------|--------|
+| `bench_tagma_get_all` | CoordSpace 11,172 sequential gets | ✅ |
+| `bench_std_get_all` | HashMap equivalent | ✅ |
+| `bench_tagma_get_single` | CoordSpace single get | ✅ |
+| `bench_n_scaling_get` | N=1..19 tree scaling | ✅ key result |
+| `bench_spatial_axis_filter` | CoordSpace axis projection | ✅ |
+| `bench_coordset_spatial_query` | CoordSet bitwise AND | ✅ 138x |
+| `bench_cs2_sparse_10M` | 10M entries on tree | ✅ 23.4x |
+
+## Channel 2: CoordCube (new benchmarks)
+
+| Benchmark | Measures | Status |
+|-----------|----------|--------|
+| `bench_coordcube_proximity_radius` | Path gen r=0..5 | ✅ |
+| `bench_coordcube_bounding_box` | BBox gen 100x100 | ✅ |
+| `bench_coordcube_dim_scaling` | D=1..4 proximity scaling | ✅ |
+| `bench_coordcube_distance_metrics` | Hamming/Euclidean/Manhattan | ✅ |
+| `bench_kv_spatial_proximity` | KV end-to-end dense/sparse/empty | ✅ |
+| `bench_coordcube_box_n_scaling` | N=2,4,6 bbox scaling | ✅ |
+| `bench_coordcube_overhead` | from_path, axis, raw_path cost | ✅ |
+| `bench_coordcube_path_vs_cube` | Tree+Path vs Tree+Cube direct | ✅ |
+
+## Gap Analysis
+
+### HIGH: DynCoordSpace + CoordCube
+
+`CoordCubeKV` is implemented for `CoordKV2` and `CoordKVN<N>` but NOT for
+`DynCoordKV`. DynCoordSpace (trie) is the most practical store for variable-length
+keys. Without this implementation, DynCoordSpace users cannot use CoordCube spatial
+queries.
+
+**Required implementation**: `CoordPathLookup` + `CoordCubeKV` for `DynCoordKV`.
+
+### MEDIUM: Large-N tree with CoordCube
+
+Current max CoordCube is N=6. No benchmark tests CoordCube on N=12 or N=19 trees.
+
+**Required**: small-radius (r=0 or r=1) benchmark on N=19 tree to keep output bounded.
+
+### MEDIUM: Hierarchical query (Coarse Cube → Fine Path)
+
+No benchmark tests the two-phase pattern: low-resolution CoordCube filter → CoordPath
+exact match.
+
+### LOW (deferrable)
+
+- CoordShift/Scroll: sliding window pattern
+- proximity_hamming vs proximity comparison
+- Multiple CoordCube views on same CoordPath
+
+## Key Finding
+
+**DynCoordSpace + CoordCube is the most critical gap.** DynCoordSpace supports
+variable-depth keys and is the most production-relevant backend. Currently
+CoordCubeKV is fixed-depth only.
