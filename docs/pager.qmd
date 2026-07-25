@@ -1,5 +1,5 @@
 ---
-title: "CoordSpace: The Spatial Computing IO Layer"
+title: "Project CoordSpace: The Spatial Computing IO Layer"
 subtitle: "Eliminating hashing and indexing at the structural level."
 version-prefix: cs-1
 version-mark: true
@@ -11,6 +11,8 @@ format:
     fontsize: 11pt
     geometry:
       - margin=16mm
+      - bottom=1.6cm
+      - footskip=1cm
     include-in-header:
       text: |
         \usepackage{xcolor}
@@ -25,10 +27,8 @@ format:
           {\LARGE \bfseries \@title \par}
           \vspace{0.3em}
           {\large \@subtitle \par}
-                \vspace{1em}
+                \vspace{0.6em}
                 {\large \texttt{\href{https://www.linkedin.com/in/stells}{\@author}}, \authorrole, \texttt{\href{mailto:\authoremail}{\authoremail}} \par}
-                \vspace{0.3em}
-                {\normalsize \texttt{\href{https://coordspace.ssccs.org}{\affiliationname}} \par}
                 \vspace{1em}
         }
         \makeatother
@@ -43,27 +43,23 @@ metadata-files:
 
 Every data system today pays the same hidden cost: hashing and indexing.
 
-The industry has spent decades optimizing surface-level symptoms. Faster hash functions. Smarter cache policies. Bigger indexes. Yet the root cause remains untouched: finding, recording, and indexing data is CPU and memory-bound because the fundamental operation is pointer chasing across unpredictable memory locations, not arithmetic.
+The industry has spent decades optimizing surface-level symptoms around faster hashing, smarter caching, and bigger indexes, while the root cause stays untouched: finding, recording, and indexing data is CPU and memory-bound because every operation chases pointers across unpredictable memory locations instead of computing addresses.
 
-Redis's tri-license shift drove 75% of users to seek alternatives, and by July 2026 an AI agent discovered 19 zero-days in 90 minutes — one becoming a working RCE exploit in 27 minutes, some unfixed for over seven months.[^redis] Every new entrant builds the same hash-index architecture with minor variations. These are symptoms of a paradigm that has reached its limit. The market does not need a faster hash table. It needs the hashing-indexing paradigm eliminated at the structural level.
+Redis's tri-license shift drove 75% of users to seek alternatives, and by July 2026 an AI agent discovered 19 zero-days in 90 minutes, one becoming a working RCE exploit in 27 minutes, some unfixed for over seven months.[^redis] Every new entrant builds the same hash-index architecture with minor variations. These are symptoms of a paradigm that has reached its limit. The market does not need a faster hash table. It needs the hashing-indexing paradigm eliminated at the structural level.
 
-## What CoordSpace Is
+## What CoordSpace Is[^technical]
 
-CoordSpace is a pure IO addressing layer. It sits beneath databases and storage engines, replacing hashing and index traversal with deterministic arithmetic on a coordinate space.
+The answer for a world after tables, indexes, and hash maps.
 
-CoordSpace treats memory and persistence as the same flat projection. Recovery from a crash is a memory remap, measured in milliseconds, with no write-ahead log to replay. The coordinate address is deterministic, eliminating collision resolution, index maintenance, and the scripting attack surface that conventional systems require. A single get completes far below the latency of the fastest general-purpose hash map, and throughput stays flat across orders of magnitude in scale. A prefix scan for a nonexistent key resolves in nanoseconds versus milliseconds for a full scan. Multi-axis spatial queries execute in nanoseconds. Memory is fixed and predictable regardless of how many entries are stored.
+CoordSpace is not a database or a single storage solution. It is a pure IO addressing layer that sits beneath databases and storage engines, replacing hashing and index traversal with deterministic arithmetic on a coordinate space.
 
-p99 equals p50. Performance is deterministic across all scales.
+CoordSpace treats memory and persistence as the same flat projection. Recovery from a crash is a memory remap, measured in milliseconds, with no write-ahead log to replay. The coordinate address is deterministic, eliminating collision resolution, index maintenance, and the scripting attack surface that conventional systems require. A single get completes far below the latency of the fastest general-purpose hash map, and throughput stays flat across orders of magnitude. Prefix scans for nonexistent keys resolve in nanoseconds instead of milliseconds. Multi-axis spatial queries do the same. Memory is fixed and predictable regardless of how many entries are stored. Performance is deterministic across all scales.
 
-## What CoordSpace Is Not
-
-CoordSpace replaces the structural use of hashing as an addressing mechanism. It does not replace cryptographic primitives: SHA-256 remains for signatures, authentication, and Merkle proofs. The two strategies compose cleanly.
-
-CoordSpace is also unentangled from any domain model. It carries no notion of facts, intents, knowledge, or memory; those are the concern of the systems that consume CoordSpace as infrastructure.
+The core is open-source[^repo]. Enterprise packaging adds scale-out clustering with Coord-based sharding — nodes join and leave without rebalancing — with full persistence, Redis RESP and S3 REST protocol adapters, and security controls (TLS/mTLS, RBAC) plus operational tooling (CLI, Prometheus, Grafana).
 
 ## One Core, Two Roles
 
-CoordSpace is a single structural layer. Its role depends on what it sits beneath.
+CoordSpace is a single structural layer. It does not replace cryptographic primitives. SHA-256 remains for signatures, authentication, and Merkle proofs. The two strategies compose cleanly. Its role depends on what it sits beneath:
 
 As a layer over legacy systems (PostgreSQL, Redis, RocksDB, S3), CoordSpace absorbs indexing and multi-dimensional query work. The underlying DB receives flat offset requests instead of complex index scans. This removes the CPU and memory-bound bottleneck at the addressing layer. As a secondary effect, every query the DB processes becomes simpler and faster. Because CoordSpace operates as a layer rather than a replacement, teams can adopt it alongside their existing infrastructure without migration.
 
@@ -89,13 +85,13 @@ Legacy infrastructure (relational databases, key-value stores, object storage) w
 
 At the other end of the spectrum, entirely new categories of data business are emerging that never fit into tables in the first place. VR pipelines generate 4D point clouds at frame rate. Robotics platforms fuse LiDAR, odometry, and visual data into unified coordinate streams. LLM inference engines maintain prefix caches whose access pattern is inherently tree-structured. In these domains, the question is not how to accelerate a legacy database; the question is why a database was ever involved. CoordSpace serves as the native IO layer, treating coordinates as the storage primitive from the start.
 
-The same core addresses both extremes: a collision-free, deterministic coordinate space that ships as a single Rust library with zero runtime dependencies. Thousands of identifiers fit in a minimal array for embedded sensors, while the same flat structure scales to millions of keys for production caches. In radiation-rich environments, the absence of index structures means there is nothing for a bit-flip to corrupt; recovery is a memory remap, not a log replay. The layer adapts to the deployment because the coordinate arithmetic is invariant; only the scale changes.
+CoordSpace addresses different audiences through the same structural layer. For infrastructure teams, it means freedom from index tuning and deterministic p99 latency. For AI engineers, it means LLM KV caches with lookup times measured in nanoseconds. For embedded developers, it means thousands of identifiers in a minimal memory footprint with no allocator. For government and defense environments, the absence of index structures eliminates the radiation-induced corruption vector, and recovery is measured in milliseconds.
+
+The same engine supports each use case, adapting to the deployment because the coordinate arithmetic is invariant; only the scale changes.
 
 ## Structural Moat and Path Forward
 
 CoordSpace is built on computing standards and open infrastructure. Its approach to data addressing is structurally distinct from hash-based or index-based systems, which means competitors cannot replicate the performance characteristics through incremental optimization of existing approaches.
-
-The core is developed as open-source software, establishing adoption and trust through transparency.[^repo] Enterprise service components (clustering, security, full persistence, and protocol adapters) are commercial. This model separates the public infrastructure layer from the proprietary value-added services, allowing each to evolve at its own pace.
 
 The addressing model scales naturally from software into hardware, enabling integration at the memory controller, FPGA, or processor pipeline level. When the coordinate is the address, the decoder can live anywhere in the stack.
 
@@ -103,6 +99,6 @@ The data industry has spent decades fighting over who builds the better hash tab
 
 Arithmetic, not hashing. Coordinates, not tables. O(1), not O(log N).
 
-[^redis]: Percona 2024: 75% seeking Redis alternatives after license changes. July 2026: Kimi K3 AI found 19 Redis zero-days in 90 min; one became RCE in 27 min. Some reported Dec 2025, unfixed for 7 months. [Percona](https://www.percona.com/blog/redis-users-want-a-change/) · [Hacker News](https://thehackernews.com/2026/07/kimi-k3-agents-found-redis-zero-days.html) · [Github](https://github.com/Lyutoon/redis-RCE-poc)
-
+[^technical]: For technical details, see [foundation project brief](https://docs.ssccs.org/projects/syntagma/brief.html), or full whitepapers: [Tagma](https://docs.ssccs.org/projects/syntagma/tagma/wp/index.pdf) · [Tagma-KV](https://docs.ssccs.org/projects/syntagma/tagma/kv/index.pdf)
 [^repo]: [github.com/ssccsorg/syntagma](https://github.com/ssccsorg/syntagma). Pre-release, Apache 2.0.
+[^redis]: Percona 2024: 75% seeking Redis alternatives after license changes. July 2026: Kimi K3 AI found 19 Redis zero-days in 90 min; one became RCE in 27 min. Some reported Dec 2025, unfixed for 7 months. [Percona](https://www.percona.com/blog/redis-users-want-a-change/) · [Hacker News](https://thehackernews.com/2026/07/kimi-k3-agents-found-redis-zero-days.html) · [Github](https://github.com/Lyutoon/redis-RCE-poc)
