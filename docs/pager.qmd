@@ -1,6 +1,6 @@
 ---
 title: "Project CoordSpace: The Spatial Computing IO Layer"
-subtitle: "Eliminating hashing and indexing at the structural level."
+subtitle: "The answer for a world after tables, indexes, and hash maps."
 version-prefix: cs-1
 version-mark: true
 generate-title-meta: false
@@ -49,8 +49,6 @@ Redis's tri-license shift drove 75% of users to seek alternatives, and by July 2
 
 ## What CoordSpace Is[^technical]
 
-The answer for a world after tables, indexes, and hash maps.
-
 CoordSpace is not a database or a single storage solution. It is a pure IO addressing layer that sits beneath databases and storage engines, replacing hashing and index traversal with deterministic arithmetic on a coordinate space.
 
 CoordSpace treats memory and persistence as the same flat projection. Recovery from a crash is a memory remap, measured in milliseconds, with no write-ahead log to replay. The coordinate address is deterministic, eliminating collision resolution, index maintenance, and the scripting attack surface that conventional systems require. A single get completes far below the latency of the fastest general-purpose hash map, and throughput stays flat across orders of magnitude. Prefix scans for nonexistent keys resolve in nanoseconds instead of milliseconds. Multi-axis spatial queries do the same. Memory is fixed and predictable regardless of how many entries are stored. Performance is deterministic across all scales.
@@ -89,13 +87,11 @@ CoordSpace addresses different audiences through the same structural layer. For 
 
 The same engine supports each use case, adapting to the deployment because the coordinate arithmetic is invariant; only the scale changes.
 
-## Structural Moat and Path Forward
+## Structural Moat and Silicon Primitive
 
-CoordSpace is built on computing standards and open infrastructure. Its approach to data addressing is structurally distinct from hash-based or index-based systems, which means competitors cannot replicate the performance characteristics through incremental optimization of existing approaches.
+**This is already a silicon primitive that currently ships in software form:** a combinational decoder of under 300 gates, specified in published research and verified against every possible input state. The specification is complete; the path to silicon is a straightforward implementation step, measured in months rather than years. The decoder belongs wherever addresses are resolved: the memory controller, the cache hierarchy, or the memory fabric itself.
 
-The addressing model scales naturally from software into hardware, enabling integration at the memory controller, FPGA, or processor pipeline level. When the coordinate is the address, the decoder can live anywhere in the stack.
-
-The data industry has spent decades fighting over who builds the better hash table or index. CoordSpace leaves that fight entirely. An IO layer, not a database. An elimination, not an optimization.
+CoordSpace is built on computing standards and open infrastructure. Its approach to data addressing is structurally distinct from hash-based or index-based systems — competitors cannot replicate the performance characteristics through incremental optimization. The data industry has spent decades fighting over who builds the better hash table or index. CoordSpace leaves that fight entirely. An IO layer, not a database. An elimination, not an optimization.
 
 Arithmetic, not hashing. Coordinates, not tables. O(1), not O(log N).
 
