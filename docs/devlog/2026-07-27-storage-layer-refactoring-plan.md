@@ -2,7 +2,7 @@
 
 date: 2026-07-27
 status: draft
-project: CoordSpace
+project: Chton
 related:
   - neXus (ssccs-nexus2)
   - Rem (rem)
@@ -11,16 +11,16 @@ related:
 
 ## Context
 
-CoordSpace is the commercial Tagma store: a collection of storage specifications,
+Chton is the commercial Tagma store: a collection of storage specifications,
 persistence solutions, and methodologies built on top of Tagma Core. It is not a
-layer that sits beneath neXus; rather, neXus is built on CoordSpace's
+layer that sits beneath neXus; rather, neXus is built on Chton's
 infrastructure and specification.
 
 Currently, neXus contains its own storage engine internally (FileIo trait,
-PersistentSpace, FihStorage). This engine needs to be extracted into CoordSpace
+PersistentSpace, FihStorage). This engine needs to be extracted into Chton
 so that:
 
-- CoordSpace becomes the one true low-level IO/storage layer for the entire SSCCS
+- Chton becomes the one true low-level IO/storage layer for the entire SSCCS
   ecosystem
 - neXus focuses on FIH lifecycle, knowledge base, and swarm agent runtime
 - External projects (Rem, ExaSpec) see zero API change
@@ -29,7 +29,7 @@ so that:
 
 External projects that already use neXus (Rem, ExaSpec) must experience **zero
 code changes**. Only neXus's internal dependency changes: instead of owning its
-storage engine, neXus imports it from CoordSpace.
+storage engine, neXus imports it from Chton.
 
 ## Hierarchy
 
@@ -39,7 +39,7 @@ Tagma Core (syntagma)
   Every axis is just an axis. Time is an axis, not a special index.
     |
     v
-CoordSpace (cs)
+Chton (ct)
   = Tagma Core + production components = commercial Tagma store
   |-- io::FileIo          (trait + FsIo, SyncFileIo, BatchIo)
   |-- io::SpaceIo         (coord-based IO, built on FileIo)
@@ -50,16 +50,16 @@ CoordSpace (cs)
   |-- ops::*              (CLI, Prometheus, Grafana)
     |
     +---> neXus (ssccs-nexus2)
-    |       FihRuntime on CoordSpace
+    |       FihRuntime on Chton
     |       FihStorage, FihBlackboard, nexd, swarm agents
     |         |
     |         +---> Rem (commercial product, directly coupled)
     |                 MCP bridge supplying sources to HW/LLM
     |
     +---> ExaSpec (es)
-    |       Verification Spec Space on CoordSpace
+    |       Verification Spec Space on Chton
     |
-    +---> (future projects, selective use of CoordSpace/neXus)
+    +---> (future projects, selective use of Chton/neXus)
 ```
 
 ## What Moves Where
@@ -196,19 +196,19 @@ Dependencies: `tagma-core` from `github.com/ssccsorg/tagma`.
    CoordSet bitwise operations. No separate TimeIndex, AxisIndex, or
    SpatioTemporalIndex structs.
 
-2. **CoordSpace does not know about FIH.** It is a low-level IO layer.
+2. **Chton does not know about FIH.** It is a low-level IO layer.
    `Fact`, `Intent`, `Hint` are neXus concepts. CoordSpace deals only in
    `CoordPath -> bytes` mappings.
 
-3. **CoordSpace owns security.** Encryption, signing, and access control live
+3. **Chton owns security.** Encryption, signing, and access control live
    in `coordspace::security`. neXus inherits these through the IO layer.
 
 4. **Minimum viable extraction.** Only FileIo and PersistentSpace move in the
    initial phase. Protocol adapters, clustering, and security layers are added
-   incrementally as CoordSpace Enterprise matures.
+   incrementally as Chton Enterprise matures.
 
 5. **FatIo stays in Rem.** It implements `FileIo` and its location is not
-   critical. It could move into CoordSpace later if needed.
+   critical. It could move into Chton later if needed.
 
 ## Timeline (Estimated)
 
@@ -220,7 +220,7 @@ Dependencies: `tagma-core` from `github.com/ssccsorg/tagma`.
 | 4 | 2 days | FihHash/FihCoord replaced by CoordPath |
 | 5 | 1 day | composite/petgraph removed |
 | 6 | 1 day | External project verification |
-| **Total** | **10 days** | CoordSpace v0.1.0 + neXus v0.2.0 |
+| **Total** | **10 days** | Chton v0.1.0 + neXus v0.2.0 |
 
 ## External project impact
 

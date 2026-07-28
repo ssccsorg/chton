@@ -1,5 +1,5 @@
 ---
-title: "Project CoordSpace: The Spatial Computing IO Layer"
+title: "Chton: Persistent IO Layer for Spatial Computing"
 subtitle: "The answer for a world after tables, indexes, and hash maps."
 version-prefix: cs-1
 version-mark: true
@@ -47,21 +47,21 @@ The industry has spent decades optimizing surface-level symptoms around faster h
 
 Redis's tri-license shift drove 75% of users to seek alternatives, and by July 2026 an AI agent discovered 19 zero-days in 90 minutes, one becoming a working RCE exploit in 27 minutes, some unfixed for over seven months.[^redis] Every new entrant builds the same hash-index architecture with minor variations. These are symptoms of a paradigm that has reached its limit. The market does not need a faster hash table. It needs the hashing-indexing paradigm eliminated at the structural level.
 
-## What CoordSpace Is[^technical]
+## What Chton Is[^technical]
 
-CoordSpace is not a database or a single storage solution. It is a pure IO addressing layer that sits beneath databases and storage engines, replacing hashing and index traversal with deterministic arithmetic on a coordinate space.
+Chton is not a database or a single storage solution. It is a pure IO addressing layer that sits beneath databases and storage engines, replacing hashing and index traversal with deterministic arithmetic on a coordinate space.
 
-CoordSpace treats memory and persistence as the same flat projection. Recovery from a crash is a memory remap, measured in milliseconds, with no write-ahead log to replay. The coordinate address is deterministic, eliminating collision resolution, index maintenance, and the scripting attack surface that conventional systems require. A single get completes far below the latency of the fastest general-purpose hash map, and throughput stays flat across orders of magnitude. Prefix scans for nonexistent keys resolve in nanoseconds instead of milliseconds. Multi-axis spatial queries do the same. Memory is fixed and predictable regardless of how many entries are stored. Performance is deterministic across all scales.
+Chton treats memory and persistence as the same flat projection. Recovery from a crash is a memory remap, measured in milliseconds, with no write-ahead log to replay. The coordinate address is deterministic, eliminating collision resolution, index maintenance, and the scripting attack surface that conventional systems require. A single get completes far below the latency of the fastest general-purpose hash map, and throughput stays flat across orders of magnitude. Prefix scans for nonexistent keys resolve in nanoseconds instead of milliseconds. Multi-axis spatial queries do the same. Memory is fixed and predictable regardless of how many entries are stored. Performance is deterministic across all scales.
 
 The core is open-source[^repo]. Enterprise packaging adds scale-out clustering with Coord-based sharding — nodes join and leave without rebalancing — with full persistence, Redis RESP and S3 REST protocol adapters, and security controls (TLS/mTLS, RBAC) plus operational tooling (CLI, Prometheus, Grafana).
 
 ## One Core, Two Roles
 
-CoordSpace is a single structural layer. It does not replace cryptographic primitives. SHA-256 remains for signatures, authentication, and Merkle proofs. The two strategies compose cleanly. Its role depends on what it sits beneath:
+Chton's core primitive from the model stack synTagma is CoordSpace — a single structural layer. It does not replace cryptographic primitives. SHA-256 remains for signatures, authentication, and Merkle proofs. The two strategies compose cleanly. Its role depends on what it sits beneath:
 
-As a layer over legacy systems (PostgreSQL, Redis, RocksDB, S3), CoordSpace absorbs indexing and multi-dimensional query work. The underlying DB receives flat offset requests instead of complex index scans. This removes the CPU and memory-bound bottleneck at the addressing layer. As a secondary effect, every query the DB processes becomes simpler and faster. Because CoordSpace operates as a layer rather than a replacement, teams can adopt it alongside their existing infrastructure without migration.
+As a layer over legacy systems (PostgreSQL, Redis, RocksDB, S3), Chton absorbs indexing and multi-dimensional query work. The underlying DB receives flat offset requests instead of complex index scans. This removes the CPU and memory-bound bottleneck at the addressing layer. As a secondary effect, every query the DB processes becomes simpler and faster. Because Chton operates as a layer rather than a replacement, teams can adopt it alongside their existing infrastructure without migration.
 
-As a direct solution for spatial-native domains (VR, LiDAR, digital twins, robotics), CoordSpace replaces the database entirely. 4D data was never a fit for 1D tables. CoordSpace treats coordinates as native primitives: (x, y, z, t) maps directly to a coordinate path. Proximity and bounding box queries operate directly on the coordinate structure, with no separate spatial index or serialization layer required.
+As a direct solution for spatial-native domains (VR, LiDAR, digital twins, robotics), Chton replaces the database entirely. 4D data was never a fit for 1D tables. Chton treats coordinates as native primitives: (x, y, z, t) maps directly to a coordinate path. Proximity and bounding box queries operate directly on the coordinate structure, with no separate spatial index or serialization layer required.
 
 ## The Market Window
 
@@ -71,19 +71,19 @@ The companies building VR pipelines, LiDAR processing, and LLM inference caches 
 
 ## The Business Case
 
-Conventional database infrastructure requires index structures that typically consume 20 to 50 percent of total storage. Because the coordinate address serves as its own index, CoordSpace avoids this overhead. Write amplification, the multiplier between application writes and physical storage writes, runs 10 to 50 times in log-structured systems due to compaction; with no index to maintain, CoordSpace eliminates this multiplier.
+Conventional database infrastructure requires index structures that typically consume 20 to 50 percent of total storage. Because the coordinate address serves as its own index, Chton avoids this overhead. Write amplification, the multiplier between application writes and physical storage writes, runs 10 to 50 times in log-structured systems due to compaction; with no index to maintain, Chton eliminates this multiplier.
 
-Memory planning in hash-based and tree-based systems is inherently unpredictable, as per-entry allocation and periodic resizing create variable overhead that complicates capacity planning. CoordSpace's fixed allocation model makes memory consumption predictable from day one. Database tuning and index maintenance represent an ongoing operational burden that CoordSpace removes, reallocating engineering time to core product work. The attack surface contracts from a multi-component runtime (Lua VM, module loader, protocol parser) to a single arithmetic operation, reducing the exposure to the class of vulnerabilities that enabled the 2026 Redis exploits.
+Memory planning in hash-based and tree-based systems is inherently unpredictable, as per-entry allocation and periodic resizing create variable overhead that complicates capacity planning. Chton's fixed allocation model makes memory consumption predictable from day one. Database tuning and index maintenance represent an ongoing operational burden that Chton removes, reallocating engineering time to core product work. The attack surface contracts from a multi-component runtime (Lua VM, module loader, protocol parser) to a single arithmetic operation, reducing the exposure to the class of vulnerabilities that enabled the 2026 Redis exploits.
 
-## Where CoordSpace Applies
+## Where Chton Applies
 
 The nature of a layer is that it has no fixed domain. It sits beneath whatever sits above it.
 
-Legacy infrastructure (relational databases, key-value stores, object storage) was designed for an era when data arrived in flat, predictable rows. Modern workloads impose a structural stress that this design never anticipated: multi-dimensional queries on spatial data, prefix scans across billion-entry caches, real-time proximity computation on streaming sensor feeds. These are not performance problems that faster hardware can absorb. They are structural mismatches. CoordSpace resolves them by replacing the addressing model beneath the existing system, leaving the storage engine itself untouched.
+Legacy infrastructure (relational databases, key-value stores, object storage) was designed for an era when data arrived in flat, predictable rows. Modern workloads impose a structural stress that this design never anticipated: multi-dimensional queries on spatial data, prefix scans across billion-entry caches, real-time proximity computation on streaming sensor feeds. These are not performance problems that faster hardware can absorb. They are structural mismatches. Chton resolves them by replacing the addressing model beneath the existing system, leaving the storage engine itself untouched.
 
-At the other end of the spectrum, entirely new categories of data business are emerging that never fit into tables in the first place. VR pipelines generate 4D point clouds at frame rate. Robotics platforms fuse LiDAR, odometry, and visual data into unified coordinate streams. LLM inference engines maintain prefix caches whose access pattern is inherently tree-structured. In these domains, the question is not how to accelerate a legacy database; the question is why a database was ever involved. CoordSpace serves as the native IO layer, treating coordinates as the storage primitive from the start.
+At the other end of the spectrum, entirely new categories of data business are emerging that never fit into tables in the first place. VR pipelines generate 4D point clouds at frame rate. Robotics platforms fuse LiDAR, odometry, and visual data into unified coordinate streams. LLM inference engines maintain prefix caches whose access pattern is inherently tree-structured. In these domains, the question is not how to accelerate a legacy database; the question is why a database was ever involved. Chton serves as the native IO layer, treating coordinates as the storage primitive from the start.
 
-CoordSpace addresses different audiences through the same structural layer. For infrastructure teams, it means freedom from index tuning and deterministic p99 latency. For AI engineers, it means LLM KV caches with lookup times measured in nanoseconds. For embedded developers, it means thousands of identifiers in a minimal memory footprint with no allocator. For government and defense environments, the absence of index structures eliminates the radiation-induced corruption vector, and recovery is measured in milliseconds.
+Chton addresses different audiences through the same structural layer. For infrastructure teams, it means freedom from index tuning and deterministic p99 latency. For AI engineers, it means LLM KV caches with lookup times measured in nanoseconds. For embedded developers, it means thousands of identifiers in a minimal memory footprint with no allocator. For government and defense environments, the absence of index structures eliminates the radiation-induced corruption vector, and recovery is measured in milliseconds.
 
 The same engine supports each use case, adapting to the deployment because the coordinate arithmetic is invariant; only the scale changes.
 
@@ -91,7 +91,7 @@ The same engine supports each use case, adapting to the deployment because the c
 
 **This is already a silicon primitive that currently ships in software form:** a combinational decoder of under 300 gates, specified in published research and verified against every possible input state. The specification is complete; the path to silicon is a straightforward implementation step, measured in months rather than years. The decoder belongs wherever addresses are resolved: the memory controller, the cache hierarchy, or the memory fabric itself.
 
-CoordSpace is built on computing standards and open infrastructure. Its approach to data addressing is structurally distinct from hash-based or index-based systems — competitors cannot replicate the performance characteristics through incremental optimization. The data industry has spent decades fighting over who builds the better hash table or index. CoordSpace leaves that fight entirely. An IO layer, not a database. An elimination, not an optimization.
+Chton is built on computing standards and open infrastructure. Its approach to data addressing is structurally distinct from hash-based or index-based systems — competitors cannot replicate the performance characteristics through incremental optimization. The data industry has spent decades fighting over who builds the better hash table or index. Chton leaves that fight entirely. A persistent IO layer, not a database. An elimination, not an optimization.
 
 Arithmetic, not hashing. Coordinates, not tables. O(1), not O(log N).
 
