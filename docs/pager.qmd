@@ -47,13 +47,13 @@ The industry has spent decades optimizing surface-level symptoms around faster h
 
 Redis's tri-license shift drove 75% of users to seek alternatives, and by July 2026 an AI agent discovered 19 zero-days in 90 minutes, one becoming a working RCE exploit in 27 minutes, some unfixed for over seven months.[^redis] Every new entrant builds the same hash-index architecture with minor variations. These are symptoms of a paradigm that has reached its limit. The market does not need a faster hash table. It needs the hashing-indexing paradigm eliminated at the structural level.
 
-## What Chton Is[^technical]
+## What Chton Is
 
-Chton is not a database or a single storage solution. It is a pure IO addressing layer that sits beneath databases and storage engines, replacing hashing and index traversal with deterministic arithmetic on a coordinate space.
+Chton is not a database or a single storage solution. It is a total IO addressing layer that sits beneath databases and storage engines, replacing hashing and index traversal with deterministic arithmetic on a coordinate space. [^bench]
 
 Chton treats memory and persistence as the same flat projection. Recovery from a crash is a memory remap, measured in milliseconds, with no write-ahead log to replay. The coordinate address is deterministic, eliminating collision resolution, index maintenance, and the scripting attack surface that conventional systems require. A single get completes far below the latency of the fastest general-purpose hash map, and throughput stays flat across orders of magnitude. Prefix scans for nonexistent keys resolve in nanoseconds instead of milliseconds. Multi-axis spatial queries do the same. Memory is fixed and predictable regardless of how many entries are stored. Performance is deterministic across all scales.
 
-The core is open-source[^repo]. Enterprise packaging adds scale-out clustering with Coord-based sharding — nodes join and leave without rebalancing — with full persistence, Redis RESP and S3 REST protocol adapters, and security controls (TLS/mTLS, RBAC) plus operational tooling (CLI, Prometheus, Grafana).
+Based on the open-core [^repo] model, enterprise packaging adds scale-out clustering with Coord-based sharding — nodes join and leave without rebalancing — with full persistence, Redis RESP and S3 REST protocol adapters, and security controls (TLS/mTLS, RBAC) plus operational tooling (CLI, Prometheus, Grafana).
 
 ## One Core, Two Roles
 
@@ -95,6 +95,6 @@ Chton is built on computing standards and open infrastructure. Its approach to d
 
 Arithmetic, not hashing. Coordinates, not tables. O(1), not O(log N).
 
-[^technical]: For technical details, see [foundation project brief](https://docs.ssccs.org/projects/syntagma/brief.html), or full whitepapers: [Tagma](https://docs.ssccs.org/projects/syntagma/tagma/wp/index.pdf) · [Tagma-KV](https://docs.ssccs.org/projects/syntagma/tagma/kv/index.pdf)
-[^repo]: [github.com/ssccsorg/syntagma](https://github.com/ssccsorg/syntagma). Pre-release, Apache 2.0.
+[^repo]: synTagma <https://docs.ssccs.org/projects/syntagma> Pre-release, Apache 2.0
+[^bench]: Benchmark results of Tagma, Chton's open core project: <https://docs.ssccs.org/projects/syntagma/tagma/wp/#sec-appendix-benches>
 [^redis]: Percona 2024: 75% seeking Redis alternatives after license changes. July 2026: Kimi K3 AI found 19 Redis zero-days in 90 min; one became RCE in 27 min. Some reported Dec 2025, unfixed for 7 months. [Percona](https://www.percona.com/blog/redis-users-want-a-change/) · [Hacker News](https://thehackernews.com/2026/07/kimi-k3-agents-found-redis-zero-days.html) · [Github](https://github.com/Lyutoon/redis-RCE-poc)
