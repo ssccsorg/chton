@@ -4,10 +4,11 @@ date: 2026-07-27
 status: draft
 project: Chton
 related:
-  - neXus (ssccs-nexus2)
-  - Rem (rem)
-  - ExaSpec (es)
-  - Tagma Core (syntagma)
+
+- neXus (ssccs-nexus2)
+- Rem (rem)
+- ExaSpec (es)
+- Tagma Core (syntagma)
 
 ## Context
 
@@ -33,7 +34,7 @@ storage engine, neXus imports it from Chton.
 
 ## Hierarchy
 
-```
+```text
 Tagma Core (syntagma)
   Coord, CoordPath, CoordSpace, CoordSet, 300-gate decoder
   Every axis is just an axis. Time is an axis, not a special index.
@@ -142,7 +143,7 @@ impl FileIo for FatIo { ... }
 
 Create the `coordspace` crate in the cs repository. Add modules:
 
-```
+```text
 coordspace/src/
 |-- lib.rs
 |-- io/

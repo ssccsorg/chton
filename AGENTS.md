@@ -22,6 +22,7 @@ All code, text content, output, and comments must be written in English.
 - Avoid sequential enumerations like “Week 1, Week 2”. Use numbered experiments, phases, or milestones instead.
 - Avoid negated‑affirmation pairs (“not…, but…”). Express logic directly through affirmative, sequential, or conditional structures.
 - Avoid Em dashs.
+- Don't add number on the section title
 
 ### Quarto
 
