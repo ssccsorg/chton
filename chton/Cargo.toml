@@ -7,3 +7,5 @@ description = "Chton: IO materialization layer — materialize the tagma coordin
 
 [dependencies]
 tagma-core.workspace = true
+futures-executor = "0.3"
+walkdir = "2"

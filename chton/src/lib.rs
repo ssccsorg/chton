@@ -14,5 +14,6 @@
 //! a protocol materializes over either.
 
 pub mod binding;
+pub mod io;
 pub mod origin;
 pub mod protocol;
