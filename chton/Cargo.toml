@@ -1,0 +1,9 @@
+[package]
+name = "chton"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Chton: IO materialization layer — materialize the tagma coordinate space onto physical origins"
+
+[dependencies]
+tagma-core.workspace = true

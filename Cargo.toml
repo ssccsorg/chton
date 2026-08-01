@@ -1,0 +1,11 @@
+[workspace]
+resolver = "2"
+members = ["chton"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+
+[workspace.dependencies]
+tagma-core = { path = "../syntagma/sw/rust/core" }

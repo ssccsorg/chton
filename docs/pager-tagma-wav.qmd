@@ -1,0 +1,106 @@
+---
+title: "Tagma-WAV: The Software-Defined Physical Layer"
+subtitle: "The answer for a world after packets, headers, and parsers."
+version-prefix: wav-1
+version-mark: true
+generate-title-meta: false
+format:
+  pdf:
+    classoption:
+      - twocolumn
+    fontsize: 11pt
+    geometry:
+      - margin=16mm
+      - bottom=1.6cm
+      - footskip=1cm
+    include-in-header:
+      text: |
+        \usepackage{xcolor}
+        \usepackage{microtype}
+        \usepackage{xeCJK}
+        \setCJKmainfont{Noto Sans CJK KR}
+        \setkeys{Gin}{width=\linewidth,height=\textheight,keepaspectratio}
+        \addtokomafont{disposition}{\rmfamily}
+        \input{./_files/wav_pager_metadata.tex}
+        \DeclareTOCStyleEntry[beforeskip=6pt]{default}{section}
+        \DeclareTOCStyleEntry[beforeskip=0pt]{default}{subsection}
+        \makeatletter
+        \def\@maketitle{
+          {\LARGE \bfseries \@title \par}
+          \vspace{0.3em}
+          {\large \@subtitle \par}
+                \vspace{0.6em}
+                {\large \texttt{\href{https://www.linkedin.com/in/stells}{\@author}}, \authorrole, \texttt{\href{mailto:\authoremail}{\authoremail}} \par}
+                \vspace{1em}
+        }
+        \makeatother
+  html: {}
+metadata-files:
+  - ./_include/author.founder.wav.yml
+  - ./_include/format.pdf.yml
+  - ./_include/format.html.yml
+---
+
+## The Real Bottleneck That No One Is Fixing
+
+Every command-and-control system today transmits packets. A packet is a container: headers, checksums, sequence numbers, and protocol identifiers wrapped around a payload. The receiving side must parse the container, validate its integrity, extract the payload, and interpret it according to its own schema.
+
+The cost is universal and mostly invisible: about 1000 ns of parsing per message on TCP/IP, 10 to 100 µs on BLE, up to 10 ms on LoRa. The industry responds with faster radios, smarter offload engines, and leaner protocols. The root cause stays untouched: communication is still container-based, and structure-based transmission remains unused.
+
+For deterministic control the real cost is variance, not latency. A 1 kHz control loop tolerates 1 ms of average delay but fails on 1 ms of jitter. A swarm of 1000 drones that hears the same broadcast still acts at 1000 different times, because every receiver pays its own parsing tax before any command can start. Swarm coordination, safety-critical robotics, and submarine communication all hit the same wall: the packet stack sits between the transmitter and the actuator.
+
+## What Tagma-WAV Is
+
+Tagma-WAV is a software-defined physical layer: a signal-interpretation layer above any existing wave carrier. It replaces the packet with a coordinate path, a sequence of N syllables from the Hangul block U+AC00–U+D7A3. Each syllable encodes a 16-bit coordinate through its initial, medial, and final decomposition and carries 13.45 bits of information. Address and payload are one structural unit, so there is no header, no checksum, no protocol stack, and no parser on the receiving end. The coordinate is the message.
+
+The receiving side validates each coordinate structurally: 54,364 of the 65,536 possible 16-bit values fall outside the block and are rejected immediately. A valid coordinate reconstructs in a single lookup at 0.39 ns in native mode on the ARMv8.4-A core used for the Tagma-KV benchmarks, and a 6-syllable command validates in 2.34 ns.[^bench] The parser is eliminated, and with it the parsing tax.
+
+The command space is structural. One syllable selects one of 11,172 commands, larger than any real instruction set (RISC-V has about 200, x86-64 about 1,500). Two syllables cover $1.25 \times 10^{8}$ command-operand pairs. Six syllables span $1.94 \times 10^{24}$ identities, the same $2^{81}$ coordinate space that keys storage in Tagma-KV and facts in the neXus FIH blackboard. The coordinate that stores is the coordinate that transmits and the coordinate that executes. A single syllable is a complete command: the sound "명" (U+BA85) validates in 0.39 ns and dispatches without translation, because the message and the medium are one.
+
+## One Signal Layer, Two Roles
+
+The same layer serves two deployments.
+
+As a retrofit over fielded radios, Tagma-WAV runs on military UHF, LoRa, BLE, and 802.15.4 hardware that is already in the field. It adds the interpretation layer with no new RF front end, no new antenna, and no change to the physical waveform. As a native signal primitive for new platforms, it is the only protocol on the medium: swarm radios, acoustic modems, and robot command links carry a coordinate stream from the first day.
+
+Both roles share the same properties. Broadcast is the addressing mechanism: one emission reaches every receiver in range, and each receiver filters by axis membership (group, role, command) at hardware speed, so a sender never enumerates receivers and scaling adds no sender-side bookkeeping. Mesh is emergent: any receiver can relay, duplicates are dropped by coordinate membership, and no routing tables or connection state exist. Hierarchy is re-emission with narrowing fields: a single physical emission branches into a command tree whose structure lives in field values, not in forwarding state. This is the physical analogue of the FIH blackboard: one shared observation, many independent actors.[^fih]
+
+## The Market Window
+
+Defense and robotics command-and-control is shifting from point-to-point packet radios to broadcast swarms, distributed autonomy, and unmanned underwater operations. The blocker is structural: packet stacks cannot deliver deterministic command delivery to thousands of receivers at once, and no amount of radio investment removes the per-receiver parsing tax.
+
+The radio hardware is already commoditized. SDR platforms, LoRa modules, and military UHF radios ship in volume; the missing layer is the deterministic signal interpretation above them. The industry keeps optimizing packet throughput, and no one is eliminating packet processing itself. The window is the moment before the next generation of swarm and UUV programs fixes their command layers, when the coordinate model either defines the standard or chases it.
+
+The digital path is measured in simulation; physical-layer latency is bounded by the medium and remains a model parameter until field measurement replaces it. The technology is preprint-stage, which is exactly when a licensing position can be staked before a standard exists.
+
+## The Business Case
+
+The product is not a radio. It is a Rust/C++ library and an FPGA bitstream that turns any SDR or fielded radio into a deterministic coordinate channel. There is no factory, no BOM, and no inventory; the marginal cost of an additional deployment is zero, and margins follow software, not hardware. Where TCP/IP adds about 1000 ns of parsing per message and BLE and LoRa add tens of microseconds to milliseconds, Tagma-WAV adds zero protocol overhead and 0.39 ns of validation per coordinate. Per-message energy drops 10 to 100 times, which matters on battery-limited drones and UUVs.
+
+Revenue comes from two streams: a per-device runtime license for fielded platforms (drones, UUVs, radios, robots) and an annual subscription for the development kit, tooling, and updates. Defense packaging adds certification builds, fleet key management, and the integrity layers (Coordinate Vernam, nonce positions, key identifiers) that the preprint specifies as design space. The open core is Apache 2.0 under the SSCCS Foundation, which builds ecosystem adoption and third-party tooling; the commercial product is the defense-grade layer above it.[^syn]
+
+Vendor lock-in is structural. The coordinate space is a system-level decision: once a platform maps its command table to coordinates, reverting to packet protocols means re-architecting the command layer, not swapping a library. Fielded coordination networks are replaced as a whole or not at all.
+
+## Where Tagma-WAV Applies
+
+The first niche is drone swarm control: broadcast command channels, receiver-side axis filtering, no routing tables, and deterministic sub-10 ns digital validation. One emission commands 1000 platforms, each filtering by its own group axis.
+
+The second niche is UUV and AUV communication: acoustic and RF carriers, severe energy limits, and a 10–100× per-message energy reduction with no reassembly and no protocol stack tax. Then factory robotics and autonomous vehicles, where the 300-gate decoder in the receive path dispatches a command as soon as validation completes and invalid commands are rejected before any partial execution. Then space and deep-space links, where deterministic validity checks, no retransmission ambiguity, and medium independence fit bandwidth-starved, latency-dominated channels.
+
+The same engine serves every domain: the coordinate arithmetic is invariant, and only the command table and the medium change. The niche establishes the reference deployments; the layer expands.
+
+## Structural Moat and Silicon Primitive
+
+**This is already a silicon primitive that currently ships in software form:** the coordinate decoder is a combinational circuit of under 300 gates that validates a 16-bit symbol and extracts its initial, medial, and final components in a single cycle, specified in published research and verified against every possible input state. The path to silicon is a straightforward implementation step, and the decoder belongs in the receive path of every radio and the encode path of every transmitter.
+
+The moat is the model, and the gates are its least durable part. Packet vendors cannot reach parser-free operation by optimizing protocol stacks, because the property comes from eliminating the container. The coordinate model combines a structural constraint (the Hangul block) with a command semantics (axis-filtered dispatch) that packet protocols do not possess, and the content-addressed, emission-only pattern has a named precedent in Named Data Networking that stops short of it: NDN still routes strings and still answers requests, while the wave model adds no routing state at all.[^ndn] Copying the model means rethinking the physical layer from the symbol upward, which is a decade of protocol churn, not a feature. The coordinate space is also one: storage (Tagma-KV), transmission (Tagma-WAV), and execution (neXus FIH with Actus) share the same arithmetic, so a single-layer competitor can be absorbed by the stack.
+
+The honest limits are stated, not hidden. The structural check detects 24.1% of single-bit flips at zero cost, so integrity-critical channels add nonce and keyid positions or physical-layer FEC. Broadcast media collide, so medium access policy (listen-before-talk, TDMA) remains at the physical layer. Authentication is a separate layer: SHA-256 remains for signatures, and the preprint specifies the integrity design space. These are the same limits every packet radio faces, minus the parser.
+
+Arithmetic, not parsing. Coordinates, not packets. 0.39 ns, not milliseconds.
+
+[^spec]: Tagma-WAV preprint: <https://docs.ssccs.org/projects/syntagma/tagma/wav/> All digital-path numbers are simulation measurements; physical-layer costs are media-dependent model parameters.
+[^bench]: Benchmark basis: the same ARMv8.4-A Firestorm core used for the Tagma-KV benchmarks, <https://docs.ssccs.org/projects/syntagma/tagma/wp/#sec-appendix-benches>
+[^fih]: The FIH blackboard (Fact-Intent-Hint) is the neXus store: <https://github.com/ssccsorg/nexus>
+[^syn]: synTagma project family, Apache 2.0: <https://docs.ssccs.org/projects/syntagma/>
+[^ndn]: Named Data Networking: Jacobson, Smetters, Thornton, Plass, Briggs, and Braynard, "Networking Named Content", ACM CoNEXT 2009.
