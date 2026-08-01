@@ -4,9 +4,7 @@ use std::fs::File;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::Path;
 
-use super::{
-    AddressMode, Binding, Capabilities, Direction, Origin, OriginError, Persistence,
-};
+use super::{AddressMode, Binding, Capabilities, Direction, Origin, OriginError, Persistence};
 
 /// A durable byte region backed by a file.
 ///
@@ -56,7 +54,7 @@ impl Origin for FileOrigin {
         let end = offset
             .checked_add(data.len() as u64)
             .ok_or(OriginError::Unsupported)?;
-        let mut file = &mut self.file;
+        let file = &mut self.file;
         file.seek(SeekFrom::Start(offset))?;
         file.write_all(data)?;
         if end > self.len {
