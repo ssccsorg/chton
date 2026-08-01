@@ -6,9 +6,9 @@
 //
 // Despite the name, this trait does NOT require `std::fs` or a local
 // filesystem. Implementations include:
-//   - SimIo: in-memory HashMap (no_std compatible)
-//   - FsIo: std::fs
-//   - CfIo: Cloudflare R2 (WASM)
+//   - SimIo: in-memory HashMap (nexus storage/sim)
+//   - FsIo: std::fs (this crate)
+//   - wasm backends: provider-specific adapters (CF Workers R2, spin)
 //   - (your backend here): any flat key-space with read/write/list/delete
 //
 // # BatchIo (lego trait)
