@@ -1,5 +1,5 @@
 use chton::origin::{
-    AddressMode, Binding, Direction, FileOrigin, MemoryOrigin, Origin, OriginError, Persistence,
+    AddressMode, Binding, Direction, FileOrigin, MemoryOrigin, Origin, Persistence,
 };
 
 #[test]
@@ -26,13 +26,12 @@ fn memory_write_extends_region() {
 }
 
 #[test]
-fn memory_read_out_of_bounds_is_error() {
+fn memory_read_beyond_len_returns_zero() {
+    // EOF semantics: reading beyond the length returns zero bytes, so
+    // sparse materialization regions read as absent.
     let origin = MemoryOrigin::new();
     let mut buf = [0u8; 1];
-    assert!(matches!(
-        origin.read(1, &mut buf),
-        Err(OriginError::OutOfBounds { .. })
-    ));
+    assert_eq!(origin.read(1, &mut buf).unwrap(), 0);
 }
 
 #[test]

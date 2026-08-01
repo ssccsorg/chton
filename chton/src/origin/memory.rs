@@ -40,11 +40,11 @@ impl Origin for MemoryOrigin {
 
     fn read(&self, offset: u64, buf: &mut [u8]) -> Result<usize, OriginError> {
         let start = offset as usize;
-        if start > self.data.len() {
-            return Err(OriginError::OutOfBounds {
-                offset,
-                len: self.data.len() as u64,
-            });
+        if start >= self.data.len() {
+            // EOF semantics: reading at or beyond the length returns zero
+            // bytes, matching positional file reads. Fresh and sparse
+            // regions therefore read as absent without an error.
+            return Ok(0);
         }
         let available = self.data.len() - start;
         let n = available.min(buf.len());
