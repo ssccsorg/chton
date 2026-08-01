@@ -178,12 +178,13 @@ impl<const N: usize> TreeStrategy<N> {
 
     fn alloc_node(&mut self, origin: &mut dyn Origin) -> Result<u64, BindingError> {
         let node = self.bump;
-        self.bump = self.bump.checked_add(self.node_size).ok_or(
-            BindingError::Origin(OriginError::OutOfBounds {
+        self.bump = self
+            .bump
+            .checked_add(self.node_size)
+            .ok_or(BindingError::Origin(OriginError::OutOfBounds {
                 offset: self.bump,
                 len: u64::MAX,
-            }),
-        )?;
+            }))?;
         // Zero the node area so absent slots read as 0.
         origin.write(node, &vec![0u8; self.node_size as usize])?;
         Ok(node)
@@ -210,7 +211,11 @@ impl<const N: usize> SpaceStrategy<N> for TreeStrategy<N> {
         for depth in 0..N {
             let coord = match key.get(depth) {
                 Some(c) => c,
-                None => return Err(BindingError::KeyTooLong { path_len: key.iter().count() }),
+                None => {
+                    return Err(BindingError::KeyTooLong {
+                        path_len: key.iter().count(),
+                    });
+                }
             };
             let slot_pos = node + coord.index() as u64 * SLOT_BYTES;
             let value = Self::read_slot(origin, slot_pos)?;
@@ -228,7 +233,9 @@ impl<const N: usize> SpaceStrategy<N> for TreeStrategy<N> {
             }
             node = value;
         }
-        Err(BindingError::KeyTooLong { path_len: key.iter().count() })
+        Err(BindingError::KeyTooLong {
+            path_len: key.iter().count(),
+        })
     }
 
     fn locate_or_create(
@@ -240,7 +247,11 @@ impl<const N: usize> SpaceStrategy<N> for TreeStrategy<N> {
         for depth in 0..N {
             let coord = match key.get(depth) {
                 Some(c) => c,
-                None => return Err(BindingError::KeyTooLong { path_len: key.iter().count() }),
+                None => {
+                    return Err(BindingError::KeyTooLong {
+                        path_len: key.iter().count(),
+                    });
+                }
             };
             let slot_pos = node + coord.index() as u64 * SLOT_BYTES;
             let value = Self::read_slot(origin, slot_pos)?;
@@ -260,7 +271,9 @@ impl<const N: usize> SpaceStrategy<N> for TreeStrategy<N> {
                 node = value;
             }
         }
-        Err(BindingError::KeyTooLong { path_len: key.iter().count() })
+        Err(BindingError::KeyTooLong {
+            path_len: key.iter().count(),
+        })
     }
 
     fn write_leaf(

@@ -1,15 +1,18 @@
 //! File-backed origin.
 
 use std::fs::File;
-use std::io::Write;
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::Path;
 
-use super::{AddressMode, Binding, Capabilities, Direction, Origin, OriginError, Persistence};
+use super::{
+    AddressMode, Binding, Capabilities, Direction, Origin, OriginError, Persistence,
+};
 
 /// A durable byte region backed by a file.
 ///
-/// The first context uses positional read and write; memory mapping is a
-/// later binding over the same origin surface.
+/// Positional access is implemented with `Seek` plus `Read` and `Write`,
+/// which are portable across unix and wasip2. Memory mapping is a later
+/// binding over the same origin surface.
 #[derive(Debug)]
 pub struct FileOrigin {
     file: File,
@@ -44,16 +47,18 @@ impl Origin for FileOrigin {
     }
 
     fn read(&self, offset: u64, buf: &mut [u8]) -> Result<usize, OriginError> {
-        use std::os::unix::fs::FileExt;
-        Ok(self.file.read_at(buf, offset)?)
+        let mut file = &self.file;
+        file.seek(SeekFrom::Start(offset))?;
+        Ok(file.read(buf)?)
     }
 
     fn write(&mut self, offset: u64, data: &[u8]) -> Result<(), OriginError> {
-        use std::os::unix::fs::FileExt;
         let end = offset
             .checked_add(data.len() as u64)
             .ok_or(OriginError::Unsupported)?;
-        self.file.write_all_at(data, offset)?;
+        let mut file = &mut self.file;
+        file.seek(SeekFrom::Start(offset))?;
+        file.write_all(data)?;
         if end > self.len {
             self.len = end;
         }

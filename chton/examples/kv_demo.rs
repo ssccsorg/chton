@@ -24,17 +24,18 @@ fn main() {
     mem.put(&key(1), b"coordinate-one").unwrap();
     println!(
         "memory: get(key0) = {:?}",
-        mem.get(&key(0)).unwrap().map(|v| String::from_utf8_lossy(&v).into_owned())
+        mem.get(&key(0))
+            .unwrap()
+            .map(|v| String::from_utf8_lossy(&v).into_owned())
     );
     let _ = mem.remove(&key(1));
     println!(
         "memory: after remove, get(key1) = {:?}",
-        mem.get(&key(1)).unwrap().map(|v| String::from_utf8_lossy(&v).into_owned())
+        mem.get(&key(1))
+            .unwrap()
+            .map(|v| String::from_utf8_lossy(&v).into_owned())
     );
-    println!(
-        "memory: capabilities = {:?}",
-        mem.origin().capabilities()
-    );
+    println!("memory: capabilities = {:?}", mem.origin().capabilities());
 
     // Scenario 2: file origin, durable materialization with reopen.
     let path = std::env::temp_dir().join("chton-kv-demo.bin");

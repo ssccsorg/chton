@@ -18,10 +18,7 @@ use tagma_core::CoordPath;
 pub enum KvError {
     Origin(OriginError),
     Binding(BindingError),
-    ValueTooLarge {
-        value_len: usize,
-        max_len: usize,
-    },
+    ValueTooLarge { value_len: usize, max_len: usize },
 }
 
 impl fmt::Display for KvError {
@@ -30,7 +27,10 @@ impl fmt::Display for KvError {
             KvError::Origin(e) => write!(f, "kv origin error: {e}"),
             KvError::Binding(e) => write!(f, "kv binding error: {e}"),
             KvError::ValueTooLarge { value_len, max_len } => {
-                write!(f, "kv value too large: {value_len} bytes, maximum {max_len}")
+                write!(
+                    f,
+                    "kv value too large: {value_len} bytes, maximum {max_len}"
+                )
             }
         }
     }
@@ -158,7 +158,7 @@ impl<O: Origin, S: SpaceStrategy<N>, const N: usize> KvStore<N> for RegionKv<O, 
                 .write_leaf(&mut self.origin, slot.leaf_slot_offset, record)?;
             record
         };
-        let mut header = (value.len() as u64).to_le_bytes();
+        let header = (value.len() as u64).to_le_bytes();
         self.origin.write(record, &header)?;
         if !value.is_empty() {
             self.origin.write(record + 8, value)?;

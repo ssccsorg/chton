@@ -13,8 +13,7 @@ fn key(index: u16) -> CoordPath<1> {
 
 fn bind_mem(max_value_len: usize) -> RegionKv<MemoryOrigin, TreeStrategy<1>, 1> {
     let origin = MemoryOrigin::new();
-    let strategy =
-        TreeStrategy::<1>::load_or_new(&origin, 8 + max_value_len as u64).unwrap();
+    let strategy = TreeStrategy::<1>::load_or_new(&origin, 8 + max_value_len as u64).unwrap();
     RegionKv::bind(origin, strategy, max_value_len)
 }
 
@@ -58,10 +57,7 @@ fn kv_depth_six_round_trip() {
 
     let deep = CoordPath::new([coord(1), coord(2), coord(3), coord(4), coord(5), coord(6)]);
     kv.put(&deep, b"deep-value").unwrap();
-    assert_eq!(
-        kv.get(&deep).unwrap().as_deref(),
-        Some(&b"deep-value"[..])
-    );
+    assert_eq!(kv.get(&deep).unwrap().as_deref(), Some(&b"deep-value"[..]));
 
     let sibling = CoordPath::new([coord(1), coord(2), coord(3), coord(4), coord(5), coord(7)]);
     assert!(kv.get(&sibling).unwrap().is_none());
@@ -81,10 +77,7 @@ fn kv_persists_across_file_reopen() {
         let origin = FileOrigin::open(&path).unwrap();
         let strategy = TreeStrategy::<1>::load_or_new(&origin, 8 + 32).unwrap();
         let kv = RegionKv::bind(origin, strategy, 32);
-        assert_eq!(
-            kv.get(&key(3)).unwrap().as_deref(),
-            Some(&b"persisted"[..])
-        );
+        assert_eq!(kv.get(&key(3)).unwrap().as_deref(), Some(&b"persisted"[..]));
         assert!(kv.get(&key(4)).unwrap().is_none());
     }
     std::fs::remove_file(&path).unwrap();
