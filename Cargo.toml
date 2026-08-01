@@ -8,4 +8,4 @@ edition = "2024"
 license = "Apache-2.0"
 
 [workspace.dependencies]
-tagma-core = { path = "../syntagma/sw/rust/core" }
+tagma-core = { git = "https://github.com/ssccsorg/syntagma", branch = "main" }

@@ -6,8 +6,6 @@ project: Chton
 related:
 - tagma (syntagma)
 - neXus (ssccs-nexus2)
-- Rem (rem)
-- ExaSpec (es)
 
 ## Context
 
@@ -15,7 +13,7 @@ This document records the design meeting outcome for the chton IO layer. It
 supersedes the storage layer refactoring plan from 2026-07-27 with a finalized
 three-layer ontology. The work is a coordinated refactoring across three
 repositories: tagma (specification), chton (materialization), and nexus
-(semantics). Consumers such as Rem and ExaSpec must see zero API change.
+(semantics). 
 
 ## Design Philosophy
 
@@ -120,8 +118,7 @@ paths; consumers see no change.
    the first protocol), mmap, checkpoint, and restore.
 4. nexus integration: dependency switch, then internal adapter swap. The
    trait surface stays unchanged.
-5. Rem migration: write_checkpoint and restore_from_snapshot move to chton
-   as the first consumer verification.
+
 
 ### Future scope
 

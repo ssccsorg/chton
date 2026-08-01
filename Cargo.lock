@@ -12,3 +12,4 @@ dependencies = [
 [[package]]
 name = "tagma-core"
 version = "0.1.0"
+source = "git+https://github.com/ssccsorg/syntagma?branch=main#9bc1472cb8e114b4b7ae841cb7e34cc2bd3b126d"

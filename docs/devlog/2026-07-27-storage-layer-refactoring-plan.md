@@ -6,8 +6,6 @@ project: Chton
 related:
 
 - neXus (ssccs-nexus2)
-- Rem (rem)
-- ExaSpec (es)
 - Tagma Core (syntagma)
 
 ## Context
@@ -24,11 +22,11 @@ so that:
 - Chton becomes the one true low-level IO/storage layer for the entire SSCCS
   ecosystem
 - neXus focuses on FIH lifecycle, knowledge base, and swarm agent runtime
-- External projects (Rem, ExaSpec) see zero API change
+- External projects see zero API change
 
 ## Core Principle
 
-External projects that already use neXus (Rem, ExaSpec) must experience **zero
+External projects that already use neXus must experience **zero
 code changes**. Only neXus's internal dependency changes: instead of owning its
 storage engine, neXus imports it from Chton.
 
@@ -53,12 +51,7 @@ Chton (ct)
     +---> neXus (ssccs-nexus2)
     |       FihRuntime on Chton
     |       FihStorage, FihBlackboard, nexd, swarm agents
-    |         |
-    |         +---> Rem (commercial product, directly coupled)
-    |                 MCP bridge supplying sources to HW/LLM
     |
-    +---> ExaSpec (es)
-    |       Verification Spec Space on Chton
     |
     +---> (future projects, selective use of Chton/neXus)
 ```
@@ -129,7 +122,7 @@ impl<IO: FileIo> FihStorage<IO> {
 }
 ```
 
-### Rem's FatIo — unchanged
+### FatIo — unchanged
 
 ```rust
 // Before: impl nex::io::FileIo for FatIo
@@ -208,7 +201,7 @@ Dependencies: `tagma-core` from `github.com/ssccsorg/tagma`.
    initial phase. Protocol adapters, clustering, and security layers are added
    incrementally as Chton Enterprise matures.
 
-5. **FatIo stays in Rem.** It implements `FileIo` and its location is not
+5. **FatIo stays.** It implements `FileIo` and its location is not
    critical. It could move into Chton later if needed.
 
 ## Timeline (Estimated)
@@ -227,6 +220,4 @@ Dependencies: `tagma-core` from `github.com/ssccsorg/tagma`.
 
 | Project | Code changes | Cargo.toml changes |
 |---------|-------------|-------------------|
-| **Rem** | 0 | 0 (Cargo.lock updates only) |
-| **ExaSpec** | 0 | 0 (Cargo.lock updates only) |
 | **nex-calc, nex-api** | 0 | 0 |
