@@ -16,10 +16,7 @@ use tagma_core::CoordPath;
 #[derive(Debug)]
 pub enum KvError {
     Origin(OriginError),
-    ValueTooLarge {
-        value_len: usize,
-        max_len: usize,
-    },
+    ValueTooLarge { value_len: usize, max_len: usize },
 }
 
 impl fmt::Display for KvError {

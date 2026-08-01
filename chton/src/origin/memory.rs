@@ -1,8 +1,6 @@
 //! In-memory origin.
 
-use super::{
-    AddressMode, Binding, Capabilities, Direction, Origin, OriginError, Persistence,
-};
+use super::{AddressMode, Binding, Capabilities, Direction, Origin, OriginError, Persistence};
 
 /// A volatile byte region backed by a `Vec<u8>`.
 #[derive(Debug, Clone, Default)]

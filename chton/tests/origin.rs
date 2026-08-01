@@ -1,6 +1,5 @@
 use chton::origin::{
-    AddressMode, Binding, Direction, FileOrigin, MemoryOrigin, Origin, OriginError,
-    Persistence,
+    AddressMode, Binding, Direction, FileOrigin, MemoryOrigin, Origin, OriginError, Persistence,
 };
 
 #[test]

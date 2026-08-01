@@ -48,10 +48,7 @@ fn kv_persists_across_file_reopen() {
     }
     {
         let kv = RegionKv::bind(FileOrigin::open(&path).unwrap(), 32);
-        assert_eq!(
-            kv.get(&key(3)).unwrap().as_deref(),
-            Some(&b"persisted"[..])
-        );
+        assert_eq!(kv.get(&key(3)).unwrap().as_deref(), Some(&b"persisted"[..]));
         assert!(kv.get(&key(4)).unwrap().is_none());
     }
     std::fs::remove_file(&path).unwrap();

@@ -4,9 +4,7 @@ use std::fs::File;
 use std::io::Write;
 use std::path::Path;
 
-use super::{
-    AddressMode, Binding, Capabilities, Direction, Origin, OriginError, Persistence,
-};
+use super::{AddressMode, Binding, Capabilities, Direction, Origin, OriginError, Persistence};
 
 /// A durable byte region backed by a file.
 ///

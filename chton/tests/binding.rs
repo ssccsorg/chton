@@ -1,4 +1,4 @@
-use chton::binding::{read_record, write_record, CoordRegion};
+use chton::binding::{CoordRegion, read_record, write_record};
 use chton::origin::MemoryOrigin;
 use tagma_core::{Coord, CoordPath};
 
@@ -15,10 +15,7 @@ fn offset_is_mixed_radix() {
 
     assert_eq!(region.offset_of(&one), 4);
     assert_eq!(region.offset_of(&two), 8);
-    assert_eq!(
-        region.offset_of(&deep),
-        (Coord::N_VALID as u64 + 2) * 4
-    );
+    assert_eq!(region.offset_of(&deep), (Coord::N_VALID as u64 + 2) * 4);
 }
 
 #[test]
