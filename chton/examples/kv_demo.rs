@@ -8,7 +8,7 @@
 
 use chton::binding::TreeStrategy;
 use chton::origin::{FileOrigin, MemoryOrigin, Origin};
-use chton::protocol::kv::{KvStore, RegionKv};
+use chton::protocol::kv::RegionKv;
 use tagma_core::{Coord, CoordPath};
 
 fn key(index: u16) -> CoordPath<1> {
@@ -20,18 +20,18 @@ fn main() {
     let origin = MemoryOrigin::new();
     let strategy = TreeStrategy::<1>::load_or_new(&origin, 8 + 64).unwrap();
     let mut mem = RegionKv::bind(origin, strategy, 64);
-    mem.put(&key(0), b"coordinate-zero").unwrap();
-    mem.put(&key(1), b"coordinate-one").unwrap();
+    mem.put_path(&key(0), b"coordinate-zero").unwrap();
+    mem.put_path(&key(1), b"coordinate-one").unwrap();
     println!(
         "memory: get(key0) = {:?}",
-        mem.get(&key(0))
+        mem.get_path(&key(0))
             .unwrap()
             .map(|v| String::from_utf8_lossy(&v).into_owned())
     );
-    let _ = mem.remove(&key(1));
+    let _ = mem.remove_path(&key(1));
     println!(
         "memory: after remove, get(key1) = {:?}",
-        mem.get(&key(1))
+        mem.get_path(&key(1))
             .unwrap()
             .map(|v| String::from_utf8_lossy(&v).into_owned())
     );
@@ -44,7 +44,7 @@ fn main() {
         let origin = FileOrigin::open(&path).unwrap();
         let strategy = TreeStrategy::<1>::load_or_new(&origin, 8 + 64).unwrap();
         let mut file = RegionKv::bind(origin, strategy, 64);
-        file.put(&key(2), b"persisted-value").unwrap();
+        file.put_path(&key(2), b"persisted-value").unwrap();
         file.flush().unwrap();
         println!("file: put(key2) and flush");
         println!("file: capabilities = {:?}", file.origin().capabilities());
@@ -53,7 +53,7 @@ fn main() {
         let origin = FileOrigin::open(&path).unwrap();
         let strategy = TreeStrategy::<1>::load_or_new(&origin, 8 + 64).unwrap();
         let file = RegionKv::bind(origin, strategy, 64);
-        match file.get(&key(2)).unwrap() {
+        match file.get_path(&key(2)).unwrap() {
             Some(v) => println!(
                 "file: reopened, get(key2) = {:?}",
                 String::from_utf8_lossy(&v)

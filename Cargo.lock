@@ -8,6 +8,7 @@ version = "0.1.0"
 dependencies = [
  "futures-executor",
  "tagma-core",
+ "tagma-kv",
  "walkdir",
 ]
 
@@ -71,6 +72,23 @@ checksum = "0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5"
 name = "tagma-core"
 version = "0.1.0"
 source = "git+https://github.com/ssccsorg/syntagma?branch=main#9bc1472cb8e114b4b7ae841cb7e34cc2bd3b126d"
+
+[[package]]
+name = "tagma-geo"
+version = "0.1.0"
+source = "git+https://github.com/ssccsorg/syntagma?branch=main#9bc1472cb8e114b4b7ae841cb7e34cc2bd3b126d"
+dependencies = [
+ "tagma-core",
+]
+
+[[package]]
+name = "tagma-kv"
+version = "0.1.0"
+source = "git+https://github.com/ssccsorg/syntagma?branch=main#9bc1472cb8e114b4b7ae841cb7e34cc2bd3b126d"
+dependencies = [
+ "tagma-core",
+ "tagma-geo",
+]
 
 [[package]]
 name = "walkdir"

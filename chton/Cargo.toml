@@ -3,9 +3,10 @@ name = "chton"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Chton: IO materialization layer — materialize the tagma coordinate space onto physical origins"
+description = "Chton: IO materialization fabric — matrix router and transformation implementations for coordinate spaces over physical origins"
 
 [dependencies]
 tagma-core.workspace = true
+tagma-kv.workspace = true
 futures-executor = "0.3"
 walkdir = "2"

@@ -112,6 +112,11 @@ pub trait SpaceStrategy<const N: usize> {
 
     /// Persist strategy state (header) to the origin.
     fn flush(&mut self, origin: &mut dyn Origin) -> Result<(), BindingError>;
+
+    /// Reset the strategy to a fresh state: the root span is zeroed, the
+    /// bump area restarts after the root, and the free list is emptied.
+    /// Existing data becomes unreachable; the origin is reused in place.
+    fn reset(&mut self, origin: &mut dyn Origin) -> Result<(), BindingError>;
 }
 
 /// Fixed-depth tree strategy over an origin.
@@ -313,6 +318,14 @@ impl<const N: usize> SpaceStrategy<N> for TreeStrategy<N> {
     }
 
     fn flush(&mut self, origin: &mut dyn Origin) -> Result<(), BindingError> {
+        self.write_header(origin)?;
+        Ok(())
+    }
+
+    fn reset(&mut self, origin: &mut dyn Origin) -> Result<(), BindingError> {
+        self.bump = ROOT_OFFSET + self.node_size;
+        self.free_head = ABSENT;
+        origin.write(ROOT_OFFSET, &vec![0u8; self.node_size as usize])?;
         self.write_header(origin)?;
         Ok(())
     }

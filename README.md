@@ -1,11 +1,18 @@
 # Chton
 
-Materialization IO layer for coordinate spaces over physical media.
+Materialization IO fabric: matrix router and transformation implementations for coordinate spaces over physical media.
 
 Chton lands the tagma coordinate space onto physical media. The tagma
 specification (syntagma) defines the coordinate space; chton provides the
 materialization: byte-level bindings over media, per-space-type layout
 strategies, and materialization protocols.
+
+The name chton comes from the Greek chthōn (earth): the layer every
+project stands on. The tagma space is the ideal form; chton is the ground
+it lands on. Memory is the native habitat of the coordinate space, so
+chton materializes onto media outside memory: file, signal, network, and
+GPU origins. Memory appears only as a projection surface, the mapped
+binding of an external medium.
 
 ## Layers
 

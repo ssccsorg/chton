@@ -23,6 +23,7 @@ All code, text content, output, and comments must be written in English.
 - Avoid negated‑affirmation pairs (“not…, but…”). Express logic directly through affirmative, sequential, or conditional structures.
 - Avoid Em dashs.
 - Don't add number on the section title
+- Keep the development direction master paper (`docs/devlog/2026-08-01-chton-development-direction-master.md`) in sync: when a design decision, code review finding, or migration step changes the direction, update the master paper in the same change set.
 
 ### Quarto
 
