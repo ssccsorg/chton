@@ -100,15 +100,17 @@ materialization moves to chton once the concept is established.
 
 ## Current State
 
-The chton workspace implements the origin, binding, and io layers over
-file origins, with memory as a projection surface. Eighteen tests cover
-origin and binding. The protocol layer and RegionKv were removed: chton
-owns no protocol type, and the key-value surface is the tagma-kv CoordKV
-contract, owned by tagma. The binding layer is the CoordSpace persistence
-backend over file origins; TreeStrategy records the tree depth, node size,
-and record slot size in the header, adopts the recorded slot size on load,
-and validates bump and free list state, so a file is never silently
-misread at another shape and reopen needs no caller-supplied size. The io
+The chton workspace implements the origin, binding, kv, and io layers
+over file origins, with memory as a projection surface. Twenty-eight
+tests cover origin, binding, and the materialized kv surface. The
+protocol layer and RegionKv were removed: chton owns no protocol type,
+and the key-value surface is the tagma-kv CoordKV contract, owned by
+tagma. The kv layer implements that contract as `MaterialKv<N>` over
+TreeStrategy, the CoordSpace persistence backend over file origins;
+TreeStrategy records the tree depth, node size, and record slot size in
+the header, adopts the recorded slot size on load, and validates bump
+and free list state, so a file is never silently misread at another
+shape and reopen needs no caller-supplied size. The io
 module is a flat key-space surface absorbed from nexus nex-io, which is
 now a re-export shim. tagma-core resolves as a git dependency and is
 unchanged. The nexus side carries the io split on branch
@@ -177,9 +179,12 @@ second, and the source repository re-exports for compatibility. The order:
    unused chton dependency in fih-model
 2. the tagma-kv CoordKV and CoordKVKey interfaces stay in tagma; chton
    implements the same CoordKV surface as materialization backends over
-   file origins. RegionKv and the chton protocol layer were removed, so
-   the shared contract is the interface, not a type. Remaining: CoordGen
-   key conversion parity and clear behavior tests
+   file origins (`MaterialKv<N>` over TreeStrategy, with the CoordCubeKV
+   proximity query primitive). RegionKv and the chton protocol layer
+   were removed, so the shared contract is the interface, not a type.
+   Remaining: CoordGen key conversion parity across the native and
+   materialized stores, and the search.json document pipeline over the
+   materialized surface
 3. refine tagma to definitions and native infrastructure, no chton
    dependency
 4. implement checkpoint and restore as the SnapshotOrigin column, and

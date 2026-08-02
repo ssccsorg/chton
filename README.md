@@ -21,6 +21,7 @@ binding of an external medium.
 |:---|:---|
 | origin | byte-level bindings: `Origin` trait with capability matrix (address mode, direction, persistence, binding), `MemoryOrigin`, `FileOrigin` |
 | binding | per-space-type materialization strategies: `SpaceStrategy` trait, `TreeStrategy<N>` (fixed-depth tree layout, the CoordSpaceN form) |
+| kv | materialized key-value surface: `MaterialKv<N>`, the tagma-kv `CoordKV`/`CoordKVKey` contract over the binding backend |
 | io | flat key-space IO surface: `FileIo`, `BatchIo`, `FsIo` (absorbed from nexus) |
 
 ## Design
@@ -36,6 +37,9 @@ binding of an external medium.
 - The key-value protocol surface is the tagma-kv CoordKV contract, owned by
   tagma; chton provides the materialization backends that bind the surface
   to origins.
+- The record boundary in the kv layer is the seam for a codec layer:
+  payload encryption before write and decryption after read change no
+  trait surface and no slot layout.
 - Per-space-type strategies keep the materialization independent of the
   space type: the fixed-depth tree (CoordSpaceN form) is the first strategy;
   DynCoordSpace and other tagma space types are later strategies on the same
@@ -43,11 +47,11 @@ binding of an external medium.
 
 ## Status
 
-Early implementation. The origin and binding (tree strategy) layers work
-over memory and file origins, and the io layer absorbs the flat key-space
-surface from nexus. The unit test suite runs through `./run.sh`. The
-CoordKV protocol surface, memory mapping, checkpoint and restore, and wave
-origins are later work.
+Early implementation. The origin, binding (tree strategy), and kv
+(materialized CoordKV) layers work over memory and file origins, and the
+io layer absorbs the flat key-space surface from nexus. The unit test
+suite runs through `./run.sh`. Memory mapping, checkpoint and restore,
+wave origins, and the record codec layer are later work.
 
 ## Boundaries
 

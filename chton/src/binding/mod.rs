@@ -222,6 +222,36 @@ impl<const N: usize> TreeStrategy<N> {
         Ok(())
     }
 
+    /// Count materialized records: the number of leaf slots holding a
+    /// non-absent record offset. Walks the whole tree; used to restore
+    /// the entry count when a store is reopened.
+    pub fn count_records(&self, origin: &dyn Origin) -> Result<u64, BindingError> {
+        self.count_node(origin, ROOT_OFFSET, 0)
+    }
+
+    fn count_node(
+        &self,
+        origin: &dyn Origin,
+        node: u64,
+        depth: usize,
+    ) -> Result<u64, BindingError> {
+        let mut count = 0u64;
+        for index in 0..Coord::N_VALID as u64 {
+            let pos = node + index * SLOT_BYTES;
+            let value = Self::read_slot(origin, pos)?;
+            if value == ABSENT {
+                continue;
+            }
+            if depth + 1 == N {
+                count += 1;
+            } else {
+                Self::check_child_in_bounds(origin, value)?;
+                count += self.count_node(origin, value, depth + 1)?;
+            }
+        }
+        Ok(count)
+    }
+
     fn write_header(&self, origin: &mut dyn Origin) -> Result<(), BindingError> {
         let mut header = [0u8; HEADER_LEN as usize];
         header[0..4].copy_from_slice(&MAGIC.to_le_bytes());
