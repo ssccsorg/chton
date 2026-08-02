@@ -136,7 +136,15 @@ impl<const N: usize> TreeStrategy<N> {
     /// Create a strategy with a fresh header state. The root node span is
     /// reserved: all allocations append after it, so nodes and records can
     /// never overlap.
+    ///
+    /// `record_slot_size` must be at least 8 bytes: every record carries
+    /// an 8-byte length prefix. A smaller slot makes the format
+    /// unrepresentable.
     pub fn new(record_slot_size: u64) -> Self {
+        assert!(
+            record_slot_size >= SLOT_BYTES,
+            "TreeStrategy: record_slot_size {record_slot_size} is below the 8-byte record header"
+        );
         let node_size = SLOT_BYTES * Coord::N_VALID as u64;
         Self {
             record_slot_size,
@@ -166,17 +174,42 @@ impl<const N: usize> TreeStrategy<N> {
         if magic != MAGIC {
             return Ok(());
         }
+        // The format records the tree depth, node size, and record slot
+        // size so a file written at one shape is not silently misread at
+        // another.
+        let depth = u16::from_le_bytes(header[4..6].try_into().unwrap());
+        let node_size = u64::from_le_bytes(header[24..32].try_into().unwrap());
+        let record_slot_size = u64::from_le_bytes(header[32..40].try_into().unwrap());
+        if depth as usize != N
+            || node_size != self.node_size
+            || record_slot_size != self.record_slot_size
+        {
+            return Err(BindingError::Corrupt { node: 0, slot: 0 });
+        }
         self.bump = u64::from_le_bytes(header[8..16].try_into().unwrap());
         self.free_head = u64::from_le_bytes(header[16..24].try_into().unwrap());
+        // The bump pointer must stay past the root span; a header that
+        // points into the header or root is corrupt.
+        if self.bump < ROOT_OFFSET + self.node_size {
+            return Err(BindingError::Corrupt { node: 0, slot: 0 });
+        }
+        // A free list head points at a record written by free_record, so
+        // a head at or beyond the file length was never written or the
+        // file was truncated.
+        if self.free_head != ABSENT && self.free_head >= origin.len() {
+            return Err(BindingError::Corrupt { node: 0, slot: 0 });
+        }
         Ok(())
     }
 
     fn write_header(&self, origin: &mut dyn Origin) -> Result<(), BindingError> {
         let mut header = [0u8; HEADER_LEN as usize];
         header[0..4].copy_from_slice(&MAGIC.to_le_bytes());
-        header[4..6].copy_from_slice(&1u16.to_le_bytes());
+        header[4..6].copy_from_slice(&(N as u16).to_le_bytes());
         header[8..16].copy_from_slice(&self.bump.to_le_bytes());
         header[16..24].copy_from_slice(&self.free_head.to_le_bytes());
+        header[24..32].copy_from_slice(&self.node_size.to_le_bytes());
+        header[32..40].copy_from_slice(&self.record_slot_size.to_le_bytes());
         origin.write(0, &header)?;
         Ok(())
     }
@@ -197,11 +230,36 @@ impl<const N: usize> TreeStrategy<N> {
 
     fn read_slot(origin: &dyn Origin, pos: u64) -> Result<u64, BindingError> {
         let mut buf = [0u8; SLOT_BYTES as usize];
-        let n = origin.read(pos, &mut buf)?;
-        if n < SLOT_BYTES as usize {
+        // A slot position at or beyond the origin length is absence: the
+        // node was never allocated. A partial read inside an allocated
+        // region is corruption.
+        if pos >= origin.len() {
             return Ok(ABSENT);
         }
+        let n = origin.read(pos, &mut buf)?;
+        if n < SLOT_BYTES as usize {
+            return Err(BindingError::Corrupt { node: pos, slot: 0 });
+        }
         Ok(u64::from_le_bytes(buf))
+    }
+
+    /// Verify a child node pointer lies within the origin. A valid file
+    /// allocates each node before writing its pointer, so a pointer that
+    /// reaches past the file is corruption, not absence.
+    fn check_child_in_bounds(origin: &dyn Origin, child: u64) -> Result<(), BindingError> {
+        let end = child
+            .checked_add(SLOT_BYTES * Coord::N_VALID as u64)
+            .ok_or(BindingError::Corrupt {
+                node: child,
+                slot: 0,
+            })?;
+        if end > origin.len() {
+            return Err(BindingError::Corrupt {
+                node: child,
+                slot: 0,
+            });
+        }
+        Ok(())
     }
 
     fn write_slot(origin: &mut dyn Origin, pos: u64, value: u64) -> Result<(), BindingError> {
@@ -236,6 +294,7 @@ impl<const N: usize> SpaceStrategy<N> for TreeStrategy<N> {
                     record_offset: ABSENT,
                 });
             }
+            Self::check_child_in_bounds(origin, value)?;
             node = value;
         }
         Err(BindingError::KeyTooLong {
@@ -273,6 +332,7 @@ impl<const N: usize> SpaceStrategy<N> for TreeStrategy<N> {
                 Self::write_slot(origin, slot_pos, child)?;
                 node = child;
             } else {
+                Self::check_child_in_bounds(origin, value)?;
                 node = value;
             }
         }
@@ -292,6 +352,14 @@ impl<const N: usize> SpaceStrategy<N> for TreeStrategy<N> {
 
     fn alloc_record(&mut self, origin: &mut dyn Origin) -> Result<u64, BindingError> {
         if self.free_head != ABSENT {
+            // A free list head points at a record written by free_record,
+            // so a head at or beyond the file length is corruption.
+            if self.free_head >= origin.len() {
+                return Err(BindingError::Corrupt {
+                    node: self.free_head,
+                    slot: 0,
+                });
+            }
             let record = self.free_head;
             self.free_head = Self::read_slot(origin, record)?;
             return Ok(record);

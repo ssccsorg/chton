@@ -4,10 +4,9 @@ set -euo pipefail
 # chton — Single entry point
 #
 # Usage:
-#   ./run.sh                 # Full pipeline: fix → check → scenarios
+#   ./run.sh                 # Full pipeline: fix → check → test
 #   ./run.sh --check         # fmt → clippy → build → test (strict)
 #   ./run.sh --fix           # auto-fix → build → test
-#   ./run.sh --scenario      # unit tests + usage scenarios (examples)
 #   ./run.sh --bench         # build + test + benchmarks (harness pending)
 #   ./run.sh --doc           # build documentation
 #   ./run.sh --help
@@ -34,12 +33,6 @@ build_and_test() {
     cargo test --release
 }
 
-scenarios() {
-    echo "--- usage scenarios (examples) ---"
-    cargo run --release --example kv_demo
-    # Additional scenario examples are added here.
-}
-
 auto_fix() {
     echo "--- auto-fix ---"
     cargo fmt --all
@@ -63,10 +56,6 @@ case "${1:-}" in
         auto_fix
         build_and_test
         ;;
-    --scenario|scenario)
-        build_and_test
-        scenarios
-        ;;
     --bench|bench)
         build_and_test
         echo "--- running benchmarks ---"
@@ -76,12 +65,11 @@ case "${1:-}" in
         build_docs
         ;;
     --help|-h)
-        echo "Usage: ./run.sh [--check|--fix|--scenario|--bench|--doc|--help]"
+        echo "Usage: ./run.sh [--check|--fix|--bench|--doc|--help]"
         exit 0
         ;;
     *)
         auto_fix
         check_checks
-        scenarios
         ;;
 esac

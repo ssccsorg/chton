@@ -19,6 +19,12 @@ impl MemoryOrigin {
         }
     }
 
+    /// Create a memory origin from existing bytes. Useful for tests and
+    /// for inspecting or truncating a materialized region.
+    pub fn with_bytes(data: Vec<u8>) -> Self {
+        Self { data }
+    }
+
     pub fn as_slice(&self) -> &[u8] {
         &self.data
     }

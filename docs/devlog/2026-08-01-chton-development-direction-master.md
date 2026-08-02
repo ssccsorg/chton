@@ -100,39 +100,40 @@ materialization moves to chton once the concept is established.
 
 ## Current State
 
-The chton workspace implements the origin, binding, protocol, and io
-layers over file origins, with memory as a projection surface. Fourteen
-tests cover origin, binding, and protocol. RegionKv implements both the
-KvStore surface and the tagma-kv CoordKV and CoordKVKey interfaces, so the
-native KV (tagma) and the materialized KV (chton) share one contract. The
-CoordKV surface binds over TreeStrategy, the CoordSpace persistence
-backend over file origins. The io module is a flat key-space surface absorbed from
-nexus nex-io, which is now a re-export shim. tagma-core resolves as a git
-dependency and is unchanged. The nexus side carries the io split on branch
+The chton workspace implements the origin, binding, and io layers over
+file origins, with memory as a projection surface. Sixteen tests cover
+origin and binding. The protocol layer and RegionKv were removed: chton
+owns no protocol type, and the key-value surface is the tagma-kv CoordKV
+contract, owned by tagma. The binding layer is the CoordSpace persistence
+backend over file origins; TreeStrategy records the tree depth, node size,
+and record slot size in the header and validates bump and free list state
+on load, so a file is never silently misread at another shape. The io
+module is a flat key-space surface absorbed from nexus nex-io, which is
+now a re-export shim. tagma-core resolves as a git dependency and is
+unchanged. The nexus side carries the io split on branch
 164-chton-io-split.
 
 ## Code Review Findings
 
 The code review against the fabric principle found two violations and one
-open gate.
+open gate; both violations are resolved.
 
-### Binding layer leaks protocol semantics
+### Binding layer leaks protocol semantics (resolved)
 
-The SpaceStrategy trait carries key-value record management
-(alloc_record, free_record, record_slot_size) into a layer documented as
-protocol-agnostic. A log or blob protocol would inherit record and free
-list semantics it does not need, splitting the binding trait per protocol.
-The matrix must keep binding (how a space lays out over an origin) and
-protocol (how a path is read and written) separate so that any protocol
-can traverse any space strategy.
+The SpaceStrategy trait once carried key-value record management into a
+layer documented as protocol-agnostic, and the protocol layer lived in
+chton. The resolution removes the protocol layer entirely: chton owns no
+protocol type, and the CoordKV contract stays with tagma-kv. SpaceStrategy
+remains the CoordSpace persistence backend, and record management is
+backend scope, so a log or blob protocol consumes the same backend surface
+without inheriting protocol code.
 
-### The space form is not recorded in the format
+### The space form is not recorded in the format (resolved)
 
-The header stores magic, version, bump, and free list head but not the
-tree depth N, node size, or record slot size. A file written at depth 2
-reopened at depth 1 misreads silently. The D2 gate (fixed-depth tree) is
-effectively closed, so N is the row index of the matrix and must be part
-of the file contract.
+The header now records tree depth N, node size, and record slot size, and
+validates bump and free list state on load. A file written at depth 2
+reopened at depth 1, or at one record slot size reopened at another, fails
+loudly instead of misreading silently.
 
 ### The D2 gate
 
@@ -142,22 +143,24 @@ dense forms are later rows on the same surface.
 
 ## Other Review Findings
 
-Storage integrity is the weakest area:
+Storage integrity is the weakest area; the TreeStrategy hardening closed
+the format-side items:
 
 - FsIo allows path traversal: the resolve check accepts dots and slashes
-  and does not constrain the joined path.
-- A corrupt length prefix in the key-value record triggers unbounded
-  allocation.
-- The record slot size invariant is unenforced; an undersized slot
-  overwrites neighboring records silently.
-- An empty value is conflated with an absent key because zero is both the
-  absent sentinel and a valid length.
-- Short reads are interpreted as absence because the origin performs a
-  single read call without a read-exact loop.
-- The on-disk format is not self-describing and header fields are not
-  validated; a torn write can leave live regions reused silently.
+  and does not constrain the joined path. (open)
+- The record slot size invariant is enforced: undersized slots panic at
+  construction, and the header records the size for reopen validation.
+  (resolved)
+- Short reads are corruption, not absence: a partial read inside an
+  allocated region fails loudly, while a slot at or beyond the file length
+  is absence. A child pointer that reaches past the file fails loudly too.
+  (resolved)
+- Header fields are validated on load: depth, node size, record slot size,
+  bump, and free list head must be consistent. (resolved)
+- The key-value record length prefix no longer exists: the protocol layer
+  and RegionKv were removed. (resolved by removal)
 - The io module has no tests at all, and no build target coverage exists
-  for wasm32-wasip2 or wasm32-unknown-unknown in the tooling.
+  for wasm32-wasip2 or wasm32-unknown-unknown in the tooling. (open)
 
 The zero-serialization claim is directionally true: values are raw bytes
 and coordinates are positional array indices. It is fragile because the
@@ -171,10 +174,11 @@ second, and the source repository re-exports for compatibility. The order:
 1. finish the nexus io split: delete dead implementation files, pin the
    chton and tagma-core git dependencies across all lockfiles, resolve the
    unused chton dependency in fih-model
-2. the tagma-kv CoordKV and CoordKVKey interfaces are implemented on
-   RegionKv; the native KV stays in tagma and the materialized KV in
-   chton share one contract. Remaining: CoordGen key conversion parity
-   and clear behavior tests
+2. the tagma-kv CoordKV and CoordKVKey interfaces stay in tagma; chton
+   implements the same CoordKV surface as materialization backends over
+   file origins. RegionKv and the chton protocol layer were removed, so
+   the shared contract is the interface, not a type. Remaining: CoordGen
+   key conversion parity and clear behavior tests
 3. refine tagma to definitions and native infrastructure, no chton
    dependency
 4. implement checkpoint and restore as the SnapshotOrigin column, and
@@ -189,10 +193,25 @@ side because materialized implementations live there; tagma changes begin
 when chton implements the CoordKV surface and the two sides share one
 contract.
 
+## Naming
+
+The naming pairs sit at the same level:
+
+| tagma | chton |
+|:---|:---|
+| Coord | Material |
+| CoordPath | MaterialPath |
+| CoordSpace | MaterialSpace |
+
+coord is the prefix of the tagma project; material is the prefix of the
+chton project. A MaterialPath is a coordinate materialized onto a
+physical medium: space type, origin, and target.
+
 ## Open Items
 
-- a Path type (space type, origin, target) and matrix lookup API so
-  consumers address materialization paths by coordinates
+- a MaterialPath type (space type, origin, target) at the same level as
+  the tagma CoordPath, and a matrix lookup API so consumers address
+  materialization paths by coordinates
 - per-path observability (count, latency, error) as the monitoring
   surface of the router
 - MappedFileOrigin (mmap, mapped binding) on unix

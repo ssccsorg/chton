@@ -11,16 +11,12 @@
 //!   projection surface, and signal, network, and GPU origins are future
 //!   contexts),
 //! - the binding layer adapts coordinate paths to origin offsets and is the
-//!   CoordSpace persistence backend,
-//! - the protocol layer defines materialization protocols, with key-value as
-//!   the first protocol, bound to the backend by the tagma-kv CoordKV
-//!   contract.
+//!   CoordSpace persistence backend.
 //!
-//! A protocol is origin-agnostic and an origin is protocol-agnostic. Storage
-//! is what a disk origin does, transmission is what a signal origin does, and
-//! a protocol materializes over either.
+//! A protocol is origin-agnostic and an origin is protocol-agnostic. The
+//! protocol surface is the tagma-kv CoordKV contract, owned by tagma; chton
+//! provides the materialization backends that protocols bind to.
 
 pub mod binding;
 pub mod io;
 pub mod origin;
-pub mod protocol;
