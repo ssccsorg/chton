@@ -12,6 +12,12 @@
 //!
 //! File offset 0 is the absent sentinel and is never a valid node or record.
 //! The layout is the storage format: there is no separate serialization step.
+//!
+//! The binding surface is the Lego block the router stacks: a strategy is
+//! object-safe and boxable per depth N, so the materialization matrix can
+//! hold heterogeneous space types as per-N trait objects over any origin.
+//! The surface assumes a single writer: bump and free list state live in
+//! the strategy, so one strategy must own the origin at a time.
 
 use std::error::Error;
 use std::fmt;
@@ -79,7 +85,11 @@ pub struct Slot {
 /// Per-space-type materialization strategy over an origin.
 ///
 /// The strategy defines how a space structure is laid out over the origin
-/// and how a coordinate path resolves to a record slot.
+/// and how a coordinate path resolves to a record slot. Record management
+/// (allocation, free list, slot size) is backend scope: it is the storage
+/// backend's record surface, independent of any protocol, so any protocol
+/// consumes the same backend without inheriting protocol code. The trait
+/// is object-safe; the router holds strategies as per-N trait objects.
 pub trait SpaceStrategy<const N: usize> {
     /// Read-only resolve: locate the slot for a coordinate path without
     /// allocating. `record_offset` is 0 when absent.
@@ -110,7 +120,9 @@ pub trait SpaceStrategy<const N: usize> {
     /// The byte size of one record slot.
     fn record_slot_size(&self) -> u64;
 
-    /// Persist strategy state (header) to the origin.
+    /// Persist strategy state (header) to the origin. This writes layout
+    /// state; call `Origin::flush` to push buffered bytes to the medium.
+    /// The caller composes the two flushes.
     fn flush(&mut self, origin: &mut dyn Origin) -> Result<(), BindingError>;
 
     /// Reset the strategy to a fresh state: the root span is zeroed, the
@@ -155,9 +167,13 @@ impl<const N: usize> TreeStrategy<N> {
     }
 
     /// Load the header from the origin when present, otherwise return a
-    /// fresh strategy.
-    pub fn load_or_new(origin: &dyn Origin, record_slot_size: u64) -> Result<Self, BindingError> {
-        let mut strategy = Self::new(record_slot_size);
+    /// fresh strategy. `default_record_slot_size` applies only to fresh
+    /// files; an existing file supplies its own recorded slot size.
+    pub fn load_or_new(
+        origin: &dyn Origin,
+        default_record_slot_size: u64,
+    ) -> Result<Self, BindingError> {
+        let mut strategy = Self::new(default_record_slot_size);
         strategy.load(origin)?;
         Ok(strategy)
     }
@@ -180,12 +196,16 @@ impl<const N: usize> TreeStrategy<N> {
         let depth = u16::from_le_bytes(header[4..6].try_into().unwrap());
         let node_size = u64::from_le_bytes(header[24..32].try_into().unwrap());
         let record_slot_size = u64::from_le_bytes(header[32..40].try_into().unwrap());
-        if depth as usize != N
-            || node_size != self.node_size
-            || record_slot_size != self.record_slot_size
-        {
+        if depth as usize != N || node_size != self.node_size {
             return Err(BindingError::Corrupt { node: 0, slot: 0 });
         }
+        // The recorded slot size is adopted: the file is self-describing,
+        // so reopen needs no caller-supplied size. A size below the record
+        // header is corruption.
+        if record_slot_size < SLOT_BYTES {
+            return Err(BindingError::Corrupt { node: 0, slot: 0 });
+        }
+        self.record_slot_size = record_slot_size;
         self.bump = u64::from_le_bytes(header[8..16].try_into().unwrap());
         self.free_head = u64::from_le_bytes(header[16..24].try_into().unwrap());
         // The bump pointer must stay past the root span; a header that

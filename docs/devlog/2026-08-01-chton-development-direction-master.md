@@ -101,13 +101,14 @@ materialization moves to chton once the concept is established.
 ## Current State
 
 The chton workspace implements the origin, binding, and io layers over
-file origins, with memory as a projection surface. Sixteen tests cover
+file origins, with memory as a projection surface. Eighteen tests cover
 origin and binding. The protocol layer and RegionKv were removed: chton
 owns no protocol type, and the key-value surface is the tagma-kv CoordKV
 contract, owned by tagma. The binding layer is the CoordSpace persistence
 backend over file origins; TreeStrategy records the tree depth, node size,
-and record slot size in the header and validates bump and free list state
-on load, so a file is never silently misread at another shape. The io
+and record slot size in the header, adopts the recorded slot size on load,
+and validates bump and free list state, so a file is never silently
+misread at another shape and reopen needs no caller-supplied size. The io
 module is a flat key-space surface absorbed from nexus nex-io, which is
 now a re-export shim. tagma-core resolves as a git dependency and is
 unchanged. The nexus side carries the io split on branch

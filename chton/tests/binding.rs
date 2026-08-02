@@ -85,7 +85,7 @@ fn depth_mismatch_on_reopen_is_corrupt() {
 }
 
 #[test]
-fn record_slot_size_mismatch_on_reopen_is_corrupt() {
+fn record_slot_size_is_adopted_on_reopen() {
     let path = std::env::temp_dir().join(format!("chton-binding-slot-{}.bin", std::process::id()));
     {
         let mut origin = FileOrigin::open(&path).unwrap();
@@ -94,9 +94,30 @@ fn record_slot_size_mismatch_on_reopen_is_corrupt() {
     }
     {
         let origin = FileOrigin::open(&path).unwrap();
-        // Reopening the file at a different record slot size would
-        // misalign bump and free list reads; the header records the size.
-        let strategy = TreeStrategy::<2>::load_or_new(&origin, 32);
+        // The file is self-describing: the recorded slot size is adopted,
+        // so reopen does not depend on caller-supplied knowledge.
+        let strategy = TreeStrategy::<2>::load_or_new(&origin, 32).unwrap();
+        assert_eq!(strategy.record_slot_size(), 16);
+    }
+    std::fs::remove_file(&path).unwrap();
+}
+
+#[test]
+fn undersized_record_slot_size_in_header_is_corrupt() {
+    let path = std::env::temp_dir().join(format!(
+        "chton-binding-slot-tampered-{}.bin",
+        std::process::id()
+    ));
+    {
+        let mut origin = FileOrigin::open(&path).unwrap();
+        let mut strategy = TreeStrategy::<2>::new(16);
+        strategy.flush(&mut origin).unwrap();
+        // Tamper the recorded slot size to a value below the record header.
+        origin.write(32, &4u64.to_le_bytes()).unwrap();
+    }
+    {
+        let origin = FileOrigin::open(&path).unwrap();
+        let strategy = TreeStrategy::<2>::load_or_new(&origin, 16);
         assert!(matches!(strategy, Err(BindingError::Corrupt { .. })));
     }
     std::fs::remove_file(&path).unwrap();
@@ -140,6 +161,26 @@ fn truncation_to_slot_boundary_reads_as_absent() {
         MemoryOrigin::with_bytes(origin.as_slice()[..slot.leaf_slot_offset as usize].to_vec());
     let got = strategy.locate(&truncated, &key).unwrap();
     assert_eq!(got.record_offset, 0);
+}
+
+#[test]
+fn strategy_works_through_trait_object() {
+    // The router holds heterogeneous strategies as per-N trait objects,
+    // so the surface must stay object-safe over the full write path.
+    let mut origin = MemoryOrigin::new();
+    let mut strategy: Box<dyn SpaceStrategy<2>> = Box::new(TreeStrategy::<2>::new(16));
+    let key = CoordPath::new([coord(1), coord(2)]);
+
+    let slot = strategy.locate_or_create(&mut origin, &key).unwrap();
+    let record = strategy.alloc_record(&mut origin).unwrap();
+    origin.write(record, &[0xCD; 8]).unwrap();
+    strategy
+        .write_leaf(&mut origin, slot.leaf_slot_offset, record)
+        .unwrap();
+
+    let got = strategy.locate(&origin, &key).unwrap();
+    assert_eq!(got.record_offset, record);
+    assert_eq!(strategy.record_slot_size(), 16);
 }
 
 #[test]
