@@ -1,5 +1,5 @@
 use chton::kv::{KvError, MaterialKv};
-use chton::origin::{FileOrigin, MemoryOrigin};
+use chton::origin::{FileOrigin, MappedFileOrigin, MemoryOrigin};
 use tagma_core::{Coord, CoordPath};
 use tagma_kv::coord_cube_kv::CoordCubeKV;
 use tagma_kv::coord_gen::CoordKey;
@@ -172,6 +172,37 @@ fn empty_value_round_trip() {
     );
     assert_eq!(kv.get_by_coordkey(&CoordKey::new([1, 2])), Some(Vec::new()));
     assert_eq!(kv.len(), 1);
+}
+
+#[test]
+fn persists_across_mapped_file_reopen() {
+    // Flagship path end to end: CoordSpaceN (TreeStrategy) + kv
+    // (MaterialKv) over the mapped binding (MappedFileOrigin). Insert,
+    // flush, reopen, and read the value back from the mapped file.
+    let path = std::env::temp_dir().join(format!("chton-kv-n6-mapped-{}.bin", std::process::id()));
+    let path2 = path.clone();
+    {
+        let origin = Box::new(MappedFileOrigin::open(&path).unwrap());
+        let mut kv = MaterialKv::<6>::new(origin, 64);
+        let ck = CoordKey::new(*b"abcdef");
+        assert!(
+            kv.insert_by_coordkey(&ck, b"mapped-value".to_vec())
+                .is_none()
+        );
+        assert_eq!(kv.len(), 1);
+        kv.flush().unwrap();
+    }
+    {
+        let origin = Box::new(MappedFileOrigin::open(&path2).unwrap());
+        let kv = MaterialKv::<6>::load(origin, 64).unwrap();
+        let ck = CoordKey::new(*b"abcdef");
+        assert_eq!(
+            kv.get_by_coordkey(&ck).as_deref(),
+            Some(&b"mapped-value"[..])
+        );
+        assert_eq!(kv.len(), 1);
+    }
+    std::fs::remove_file(&path).unwrap();
 }
 
 #[test]

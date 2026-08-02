@@ -19,7 +19,7 @@ binding of an external medium.
 
 | Layer | Content |
 |:---|:---|
-| origin | byte-level bindings: `Origin` trait with capability matrix (address mode, direction, persistence, binding), `MemoryOrigin`, `FileOrigin` |
+| origin | byte-level bindings: `Origin` trait with capability matrix (address mode, direction, persistence, binding), `MemoryOrigin`, `FileOrigin`, `MappedFileOrigin` (mmap, unix, the mapped binding) |
 | binding | per-space-type materialization strategies: `SpaceStrategy` trait, `TreeStrategy<N>` (fixed-depth tree layout, the CoordSpaceN form) |
 | kv | materialized key-value surface: `MaterialKv<N>`, the tagma-kv `CoordKV`/`CoordKVKey` contract over the binding backend |
 | io | flat key-space IO surface: `FileIo`, `BatchIo`, `FsIo` (absorbed from nexus) |
@@ -48,9 +48,9 @@ binding of an external medium.
 ## Status
 
 Early implementation. The origin, binding (tree strategy), and kv
-(materialized CoordKV) layers work over memory and file origins, and the
-io layer absorbs the flat key-space surface from nexus. The unit test
-suite runs through `./run.sh`. Memory mapping, checkpoint and restore,
+(materialized CoordKV) layers work over memory, file, and mapped-file
+origins, and the io layer absorbs the flat key-space surface from nexus.
+The unit test suite runs through `./run.sh`. Checkpoint and restore,
 wave origins, and the record codec layer are later work.
 
 ## Boundaries

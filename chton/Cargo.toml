@@ -11,3 +11,6 @@ tagma-geo.workspace = true
 tagma-kv.workspace = true
 futures-executor = "0.3"
 walkdir = "2"
+
+[target.'cfg(unix)'.dependencies]
+memmap2 = "0.9"

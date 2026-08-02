@@ -32,7 +32,7 @@ never a separate stack:
 
 | Family | Cells | Status |
 |:---|:---|:---|
-| Chton-Storage | Fixed-depth tree x Memory, File | implemented |
+| Chton-Storage | Fixed-depth tree x Memory, File, Mapped | implemented |
 | Chton-Wave | Recursive tree x Signal | future |
 | Chton-Memory | Dense array x Snapshot | future |
 
@@ -101,16 +101,20 @@ materialization moves to chton once the concept is established.
 ## Current State
 
 The chton workspace implements the origin, binding, kv, and io layers
-over file origins, with memory as a projection surface. Twenty-eight
-tests cover origin, binding, and the materialized kv surface. The
+over file and mapped-file origins, with memory as a projection surface.
+Thirty-three tests cover origin, binding, and the materialized kv
+surface. The
 protocol layer and RegionKv were removed: chton owns no protocol type,
 and the key-value surface is the tagma-kv CoordKV contract, owned by
 tagma. The kv layer implements that contract as `MaterialKv<N>` over
-TreeStrategy, the CoordSpace persistence backend over file origins;
-TreeStrategy records the tree depth, node size, and record slot size in
-the header, adopts the recorded slot size on load, and validates bump
-and free list state, so a file is never silently misread at another
-shape and reopen needs no caller-supplied size. The io
+TreeStrategy, the CoordSpace persistence backend over file and mapped
+origins; TreeStrategy records the tree depth, node size, and record slot
+size in the header, adopts the recorded slot size on load, and validates
+bump and free list state, so a file is never silently misread at another
+shape and reopen needs no caller-supplied size. `MappedFileOrigin` is the
+mapped binding of the same layout on unix: the file is projected into the
+address space and the mapping is recreated when a write extends the file.
+The io
 module is a flat key-space surface absorbed from nexus nex-io, which is
 now a re-export shim. tagma-core resolves as a git dependency and is
 unchanged. The nexus side carries the io split on branch
@@ -188,7 +192,8 @@ second, and the source repository re-exports for compatibility. The order:
 3. refine tagma to definitions and native infrastructure, no chton
    dependency
 4. implement checkpoint and restore as the SnapshotOrigin column, and
-   mmap as the mapped binding of the same layout
+   mmap as the mapped binding of the same layout. The mapped binding is
+   implemented (`MappedFileOrigin`, unix); checkpoint and restore remain
 5. switch nexus dependencies, then swap internal adapters; the trait
    surface stays unchanged
 6. switch rem to write_checkpoint and restore_from_snapshot as the first
@@ -220,7 +225,6 @@ physical medium: space type, origin, and target.
   materialization paths by coordinates
 - per-path observability (count, latency, error) as the monitoring
   surface of the router
-- MappedFileOrigin (mmap, mapped binding) on unix
 - checkpoint and restore as the SnapshotOrigin column
 - recursive and dense space strategies as later matrix rows
 - the wave origin as the SignalOrigin column once the tagma-wave concept

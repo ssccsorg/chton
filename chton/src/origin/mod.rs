@@ -10,9 +10,13 @@ use std::error::Error;
 use std::fmt;
 
 mod file;
+#[cfg(unix)]
+mod mapped_file;
 mod memory;
 
 pub use file::FileOrigin;
+#[cfg(unix)]
+pub use mapped_file::MappedFileOrigin;
 pub use memory::MemoryOrigin;
 
 /// Address mode of an origin.

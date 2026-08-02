@@ -1,5 +1,6 @@
 use chton::origin::{
-    AddressMode, Binding, Direction, FileOrigin, MemoryOrigin, Origin, Persistence,
+    AddressMode, Binding, Direction, FileOrigin, MappedFileOrigin, MemoryOrigin, Origin,
+    Persistence,
 };
 
 #[test]
@@ -86,5 +87,69 @@ fn file_capabilities() {
     assert_eq!(caps.direction, Direction::Duplex);
     assert_eq!(caps.persistence, Persistence::Durable);
     assert_eq!(caps.binding, Binding::Copied);
+    std::fs::remove_file(&path).unwrap();
+}
+
+#[test]
+fn mapped_round_trip() {
+    let path = std::env::temp_dir().join(format!("chton-mapped-rt-{}.bin", std::process::id()));
+    let mut origin = MappedFileOrigin::open(&path).unwrap();
+    origin.write(4, b"abcd").unwrap();
+    assert_eq!(origin.len(), 8);
+    let mut buf = [0u8; 4];
+    let n = origin.read(4, &mut buf).unwrap();
+    assert_eq!(n, 4);
+    assert_eq!(&buf, b"abcd");
+    std::fs::remove_file(&path).unwrap();
+}
+
+#[test]
+fn mapped_write_grows_file() {
+    // A write past the current length must extend the file and remap,
+    // not fault.
+    let path = std::env::temp_dir().join(format!("chton-mapped-grow-{}.bin", std::process::id()));
+    let mut origin = MappedFileOrigin::open(&path).unwrap();
+    origin.write(5000, b"deep").unwrap();
+    assert_eq!(origin.len(), 5004);
+    let mut buf = [0u8; 4];
+    let n = origin.read(5000, &mut buf).unwrap();
+    assert_eq!(n, 4);
+    assert_eq!(&buf, b"deep");
+    // The gap reads as zeros (sparse materialization region).
+    let mut zero = [0u8; 4];
+    assert_eq!(origin.read(4096, &mut zero).unwrap(), 4);
+    assert_eq!(&zero, &[0u8; 4]);
+    std::fs::remove_file(&path).unwrap();
+}
+
+#[test]
+fn mapped_persists_across_reopen() {
+    let path =
+        std::env::temp_dir().join(format!("chton-mapped-persist-{}.bin", std::process::id()));
+    {
+        let mut origin = MappedFileOrigin::open(&path).unwrap();
+        origin.write(0, b"persist").unwrap();
+        origin.flush().unwrap();
+    }
+    {
+        let origin = MappedFileOrigin::open(&path).unwrap();
+        assert_eq!(origin.len(), 7);
+        let mut buf = [0u8; 7];
+        let n = origin.read(0, &mut buf).unwrap();
+        assert_eq!(n, 7);
+        assert_eq!(&buf, b"persist");
+    }
+    std::fs::remove_file(&path).unwrap();
+}
+
+#[test]
+fn mapped_capabilities() {
+    let path = std::env::temp_dir().join(format!("chton-mapped-caps-{}.bin", std::process::id()));
+    let origin = MappedFileOrigin::open(&path).unwrap();
+    let caps = origin.capabilities();
+    assert_eq!(caps.address_mode, AddressMode::Byte);
+    assert_eq!(caps.direction, Direction::Duplex);
+    assert_eq!(caps.persistence, Persistence::Durable);
+    assert_eq!(caps.binding, Binding::Mapped);
     std::fs::remove_file(&path).unwrap();
 }
