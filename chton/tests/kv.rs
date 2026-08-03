@@ -206,6 +206,21 @@ fn persists_across_mapped_file_reopen() {
 }
 
 #[test]
+fn iter_yields_entries() {
+    let mut kv = mem_kv::<2>();
+    kv.insert_by_coordkey(&CoordKey::new([1, 2]), b"a".to_vec());
+    kv.insert_by_coordkey(&CoordKey::new([3, 4]), b"b".to_vec());
+
+    let entries = kv.iter().unwrap();
+    assert_eq!(entries.len(), 2);
+    // Coordinate-ascending order.
+    assert_eq!(entries[0].0, CoordKey::new([1, 2]));
+    assert_eq!(entries[0].1, b"a");
+    assert_eq!(entries[1].0, CoordKey::new([3, 4]));
+    assert_eq!(entries[1].1, b"b");
+}
+
+#[test]
 fn proximity_finds_nearby() {
     // The CoordCube query primitive over the materialized store: entries
     // within L-infinity radius of a center path.

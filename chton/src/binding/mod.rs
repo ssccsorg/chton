@@ -229,6 +229,44 @@ impl<const N: usize> TreeStrategy<N> {
         self.count_node(origin, ROOT_OFFSET, 0)
     }
 
+    /// Iterate all materialized records: coordinate paths with their
+    /// record offsets, in depth-first coordinate-ascending order. Walks
+    /// the whole tree.
+    pub fn iter(&self, origin: &dyn Origin) -> Result<Vec<(CoordPath<N>, u64)>, BindingError> {
+        let mut out = Vec::new();
+        if N == 0 {
+            return Ok(out);
+        }
+        let mut path = [Coord::new(0).unwrap(); N];
+        self.iter_node(origin, ROOT_OFFSET, 0, &mut path, &mut out)?;
+        Ok(out)
+    }
+
+    fn iter_node(
+        &self,
+        origin: &dyn Origin,
+        node: u64,
+        depth: usize,
+        path: &mut [Coord; N],
+        out: &mut Vec<(CoordPath<N>, u64)>,
+    ) -> Result<(), BindingError> {
+        for index in 0..Coord::N_VALID as u64 {
+            let pos = node + index * SLOT_BYTES;
+            let value = Self::read_slot(origin, pos)?;
+            if value == ABSENT {
+                continue;
+            }
+            path[depth] = Coord::new(index as u16).expect("index below N_VALID");
+            if depth + 1 == N {
+                out.push((CoordPath::new(*path), value));
+            } else {
+                Self::check_child_in_bounds(origin, value)?;
+                self.iter_node(origin, value, depth + 1, path, out)?;
+            }
+        }
+        Ok(())
+    }
+
     fn count_node(
         &self,
         origin: &dyn Origin,

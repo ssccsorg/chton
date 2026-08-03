@@ -140,6 +140,17 @@ impl<const N: usize> MaterialKv<N> {
         self.record_slot_size() as usize - LENGTH_BYTES as usize
     }
 
+    /// Iterate all entries in ascending coordinate order: `(key, value)`.
+    pub fn iter(&self) -> Result<Vec<(CoordKey<N>, Vec<u8>)>, KvError> {
+        let entries = self.strategy.iter(&*self.origin)?;
+        let mut out = Vec::with_capacity(entries.len());
+        for (path, offset) in entries {
+            let value = self.read_record(offset)?;
+            out.push((CoordKey::from_coord_path(&path), value));
+        }
+        Ok(out)
+    }
+
     /// Read the value at `path`. `None` means the key is absent.
     pub fn get_path(&self, path: &CoordPath<N>) -> Result<Option<Vec<u8>>, KvError> {
         let slot = self.strategy.locate(&*self.origin, path)?;

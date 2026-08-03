@@ -184,6 +184,34 @@ fn strategy_works_through_trait_object() {
 }
 
 #[test]
+fn iter_yields_inserted_paths() {
+    let mut origin = MemoryOrigin::new();
+    let mut strategy = TreeStrategy::<2>::new(16);
+    let keys = [
+        CoordPath::new([coord(1), coord(2)]),
+        CoordPath::new([coord(1), coord(3)]),
+        CoordPath::new([coord(5), coord(6)]),
+    ];
+    for k in &keys {
+        let slot = strategy.locate_or_create(&mut origin, k).unwrap();
+        let rec = strategy.alloc_record(&mut origin).unwrap();
+        strategy
+            .write_leaf(&mut origin, slot.leaf_slot_offset, rec)
+            .unwrap();
+    }
+
+    let entries = strategy.iter(&origin).unwrap();
+    assert_eq!(entries.len(), 3);
+    // Depth-first coordinate-ascending order matches the insertion order.
+    let paths: Vec<CoordPath<2>> = entries.iter().map(|(p, _)| *p).collect();
+    assert_eq!(paths[0], keys[0]);
+    assert_eq!(paths[1], keys[1]);
+    assert_eq!(paths[2], keys[2]);
+    // The record offsets point at the allocated records.
+    assert!(entries.iter().all(|(_, offset)| *offset > 0));
+}
+
+#[test]
 fn child_pointer_beyond_file_is_corrupt() {
     let mut origin = MemoryOrigin::new();
     let mut strategy = TreeStrategy::<2>::new(16);
