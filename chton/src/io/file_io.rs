@@ -73,6 +73,23 @@ pub trait FileIo {
     fn delete<'a>(&'a self, path: &'a str) -> IoFuture<'a, ()>;
 }
 
+/// Optional buffering capability: vessels that hold buffered state
+/// before it becomes durable implement this. The buffer spec gathers the
+/// semantics in one place: whether non-durable state exists, and how to
+/// persist it.
+///
+/// This is a Lego trait, separate from [`FileIo`], so the flow surface
+/// stays pure: write-through and in-memory backends implement only
+/// [`FileIo`], while buffering vessels (kv header, mapped pages) implement
+/// both. Consumers that need durability bind to `FileIo + BufferIo`.
+pub trait BufferIo {
+    /// Whether the vessel holds buffered state that is not yet durable.
+    fn is_buffered(&self) -> bool;
+
+    /// Persist buffered state to the medium.
+    fn flush<'a>(&'a self) -> IoFuture<'a, ()>;
+}
+
 /// Batch IO: lego trait for backends that support atomic batch commits.
 /// Separate from FileIo so callers can type-check batch support at compile time.
 #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]

@@ -206,6 +206,18 @@ fn persists_across_mapped_file_reopen() {
 }
 
 #[test]
+fn buffered_state_tracks_header_dirty() {
+    let mut kv = mem_kv::<2>();
+    assert!(!kv.is_buffered());
+
+    kv.insert_by_coordkey(&CoordKey::new([1, 2]), b"a".to_vec());
+    assert!(kv.is_buffered(), "a write leaves the header unsynced");
+
+    kv.flush().unwrap();
+    assert!(!kv.is_buffered(), "flush persists the header");
+}
+
+#[test]
 fn iter_yields_entries() {
     let mut kv = mem_kv::<2>();
     kv.insert_by_coordkey(&CoordKey::new([1, 2]), b"a".to_vec());

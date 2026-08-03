@@ -17,6 +17,9 @@ use super::{FileIo, IoFuture};
 ///   {root}/{path}  →  file content
 ///
 /// List with prefix scans directories recursively.
+///
+/// Writes are write-through to the filesystem, so this backend needs no
+/// `FlushIo`: it has no buffered state of its own.
 pub struct FsIo {
     root: PathBuf,
 }

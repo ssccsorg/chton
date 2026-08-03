@@ -11,6 +11,7 @@
 //! over the payload before write and after read would sit here without
 //! changing the trait surface or the slot layout.
 
+use std::cell::Cell;
 use std::error::Error;
 use std::fmt;
 
@@ -89,6 +90,8 @@ pub struct MaterialKv<const N: usize> {
     strategy: TreeStrategy<N>,
     origin: Box<dyn Origin>,
     len: usize,
+    /// True when the strategy header is not yet written to the origin.
+    dirty: Cell<bool>,
 }
 
 impl<const N: usize> fmt::Debug for MaterialKv<N> {
@@ -108,6 +111,7 @@ impl<const N: usize> MaterialKv<N> {
             strategy: TreeStrategy::new(record_slot_size),
             origin,
             len: 0,
+            dirty: Cell::new(false),
         }
     }
 
@@ -120,13 +124,21 @@ impl<const N: usize> MaterialKv<N> {
             strategy,
             origin,
             len,
+            dirty: Cell::new(false),
         })
+    }
+
+    /// Whether the strategy header holds buffered state that is not yet
+    /// durable on the origin.
+    pub fn is_buffered(&self) -> bool {
+        self.dirty.get()
     }
 
     /// Persist strategy state and flush the origin to the medium.
     pub fn flush(&mut self) -> Result<(), KvError> {
         self.strategy.flush(&mut *self.origin)?;
         self.origin.flush()?;
+        self.dirty.set(false);
         Ok(())
     }
 
@@ -195,6 +207,7 @@ impl<const N: usize> MaterialKv<N> {
         if !value.is_empty() {
             self.origin.write(record + LENGTH_BYTES, value)?;
         }
+        self.dirty.set(true);
         Ok(prev)
     }
 
@@ -211,6 +224,7 @@ impl<const N: usize> MaterialKv<N> {
         self.strategy
             .write_leaf(&mut *self.origin, slot.leaf_slot_offset, 0)?;
         self.len = self.len.saturating_sub(1);
+        self.dirty.set(true);
         Ok(Some(prev))
     }
 
@@ -259,6 +273,7 @@ impl<const N: usize> CoordKV for MaterialKv<N> {
             .reset(&mut *self.origin)
             .unwrap_or_else(|e| panic!("kv clear: reset failed: {e}"));
         self.len = 0;
+        self.dirty.set(false);
     }
 
     fn insert(&mut self, key: &str, value: Vec<u8>) -> Option<Vec<u8>> {

@@ -14,6 +14,6 @@ pub mod file_io;
 #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
 pub mod fs_io;
 
-pub use file_io::{BatchIo, FileIo, IoFuture, SyncFileIo, WriteOp, default_apply_batch};
+pub use file_io::{BatchIo, BufferIo, FileIo, IoFuture, SyncFileIo, WriteOp, default_apply_batch};
 #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
 pub use fs_io::FsIo;
