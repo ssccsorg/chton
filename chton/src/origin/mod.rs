@@ -101,8 +101,10 @@ impl From<std::io::Error> for OriginError {
 /// A byte-level binding to a physical destination.
 ///
 /// Origins are protocol-agnostic: a protocol observes only this surface, and
-/// an origin observes no protocol semantics.
-pub trait Origin {
+/// an origin observes no protocol semantics. The trait is `Send + Sync` so
+/// origins can be shared across async and threaded boundaries (for example
+/// behind a mutex in an IO adapter).
+pub trait Origin: Send + Sync {
     /// Static capabilities of this origin.
     fn capabilities(&self) -> Capabilities;
 
