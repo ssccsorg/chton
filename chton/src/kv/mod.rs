@@ -86,7 +86,7 @@ impl From<BindingError> for KvError {
 /// `record_slot_size - 8`; a larger value is rejected. A reopened store
 /// adopts the recorded slot size and restores the entry count by walking
 /// the tree.
-pub struct MaterialKv<const N: usize> {
+pub struct CoordKVStore<const N: usize> {
     strategy: TreeStrategy<N>,
     origin: Box<dyn Origin>,
     len: usize,
@@ -94,16 +94,16 @@ pub struct MaterialKv<const N: usize> {
     dirty: Cell<bool>,
 }
 
-impl<const N: usize> fmt::Debug for MaterialKv<N> {
+impl<const N: usize> fmt::Debug for CoordKVStore<N> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("MaterialKv")
+        f.debug_struct("CoordKVStore")
             .field("len", &self.len)
             .field("record_slot_size", &self.record_slot_size())
             .finish_non_exhaustive()
     }
 }
 
-impl<const N: usize> MaterialKv<N> {
+impl<const N: usize> CoordKVStore<N> {
     /// Create a fresh store over `origin`. The origin must be empty;
     /// `load` opens an existing store.
     pub fn new(origin: Box<dyn Origin>, record_slot_size: u64) -> Self {
@@ -259,7 +259,7 @@ impl<const N: usize> MaterialKv<N> {
     }
 }
 
-impl<const N: usize> CoordKV for MaterialKv<N> {
+impl<const N: usize> CoordKV for CoordKVStore<N> {
     fn len(&self) -> usize {
         self.len
     }
@@ -298,7 +298,7 @@ impl<const N: usize> CoordKV for MaterialKv<N> {
     }
 }
 
-impl<const N: usize> CoordKVKey<N> for MaterialKv<N> {
+impl<const N: usize> CoordKVKey<N> for CoordKVStore<N> {
     fn insert_by_coordkey(&mut self, key: &CoordKey<N>, value: Vec<u8>) -> Option<Vec<u8>> {
         let path = key.to_coord_path();
         self.put_path(&path, &value)
@@ -318,7 +318,7 @@ impl<const N: usize> CoordKVKey<N> for MaterialKv<N> {
     }
 }
 
-impl<const N: usize> CoordCubeKV<N> for MaterialKv<N> {
+impl<const N: usize> CoordCubeKV<N> for CoordKVStore<N> {
     fn proximity<const D: usize, const R: usize>(
         &self,
         center: &CoordPath<N>,
