@@ -10,6 +10,7 @@ tagma-core.workspace = true
 tagma-geo.workspace = true
 tagma-kv.workspace = true
 futures-executor = "0.3"
+sha2 = "0.10"
 walkdir = "2"
 
 [target.'cfg(unix)'.dependencies]

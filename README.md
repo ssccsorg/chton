@@ -21,7 +21,7 @@ binding of an external medium.
 |:---|:---|
 | origin | byte-level bindings: `Origin` trait with capability matrix (address mode, direction, persistence, binding), `MemoryOrigin`, `FileOrigin`, `MappedFileOrigin` (mmap, unix, the mapped binding) |
 | binding | per-space-type materialization strategies: `SpaceStrategy` trait, `TreeStrategy<N>` (fixed-depth tree layout, the CoordSpaceN form) |
-| kv | materialized key-value surface: `MaterialKv<N>`, the tagma-kv `CoordKV`/`CoordKVKey` contract over the binding backend |
+| kv | materialized key-value surface: `CoordKVStore<N>`, the tagma-kv `CoordKV`/`CoordKVKey` contract over the binding backend |
 | io | flat key-space IO surface: `FileIo`, `BatchIo`, `FsIo` (absorbed from nexus) |
 
 ## Design

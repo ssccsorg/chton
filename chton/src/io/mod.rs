@@ -8,12 +8,15 @@
 // This module has zero knowledge of domain models, contracts, or storage
 // semantics. It is a pure IO abstraction.
 
+/// CoordKVStore-backed FileIo backend.
+pub mod coord_kv_io;
 pub mod file_io;
 /// Filesystem-backed IO. Not available on wasm32-unknown-unknown.
 /// (Available on wasm32-wasip2 where std::fs is present.)
 #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
 pub mod fs_io;
 
+pub use coord_kv_io::CoordKVStoreIo;
 pub use file_io::{BatchIo, BufferIo, FileIo, IoFuture, SyncFileIo, WriteOp, default_apply_batch};
 #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
 pub use fs_io::FsIo;
