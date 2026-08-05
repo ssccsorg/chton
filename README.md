@@ -12,8 +12,10 @@ The name chton comes from the Greek chthōn (earth): the layer every
 project stands on. The tagma space is the ideal form; chton is the ground
 it lands on. Memory is the native habitat of the coordinate space, so
 chton materializes onto media outside memory: file, signal, network, and
-GPU origins. Memory appears only as a projection surface, the mapped
-binding of an external medium.
+GPU origins. The storage format is the memory layout: there is no
+separate serialization step. Memory is a projection surface, not a
+materialization target: an external medium projected into the address
+space is the mapped binding of that medium.
 
 ## Layers
 
@@ -26,8 +28,6 @@ binding of an external medium.
 
 ## Design
 
-- The storage format is the memory layout: there is no separate
-  serialization step.
 - Addressing is per-level array indexing: depth is bounded by file size,
   never by integer width.
 - A protocol is origin-agnostic and an origin is protocol-agnostic. Storage
