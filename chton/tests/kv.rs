@@ -1,4 +1,4 @@
-use chton::kv::{KvError, CoordKVStore};
+use chton::kv::{CoordKVStore, KvError};
 use chton::origin::{FileOrigin, MappedFileOrigin, MemoryOrigin};
 use tagma_core::{Coord, CoordPath};
 use tagma_kv::coord_cube_kv::CoordCubeKV;
