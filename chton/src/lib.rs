@@ -20,6 +20,8 @@
 //! provides the materialization backends that protocols bind to.
 
 pub mod binding;
+pub mod cell;
 pub mod io;
 pub mod kv;
 pub mod origin;
+pub mod store;

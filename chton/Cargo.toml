@@ -9,7 +9,10 @@ description = "Chton: IO materialization fabric — matrix router and transforma
 tagma-core.workspace = true
 tagma-geo.workspace = true
 tagma-kv.workspace = true
+async-trait = "0.1"
 futures-executor = "0.3"
+postcard = { version = "1", features = ["alloc"] }
+serde = { version = "1", features = ["derive"] }
 sha2 = "0.10"
 walkdir = "2"
 
