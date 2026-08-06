@@ -35,6 +35,10 @@ const HEADER_LEN: u64 = 64;
 const ROOT_OFFSET: u64 = HEADER_LEN;
 /// Header magic.
 const MAGIC: u32 = 0x4348_544F; // "CHTO"
+/// Occupancy bitmap bytes per node: one bit per coord value. Kept at the
+/// node start so full enumeration reads one bitmap instead of scanning
+/// every slot (the 11172-wide fan-out is sparse).
+const BITMAP_BYTES: u64 = (Coord::N_VALID as u64).div_ceil(8);
 
 /// Errors from binding operations.
 #[derive(Debug)]
@@ -76,6 +80,10 @@ impl From<OriginError> for BindingError {
 /// A resolved slot for a coordinate path.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Slot {
+    /// Node base containing the leaf slot.
+    pub leaf_node: u64,
+    /// Coord index of the leaf slot within the node.
+    pub leaf_index: u16,
     /// Position of the leaf slot that holds the record offset.
     pub leaf_slot_offset: u64,
     /// Record offset, 0 when absent.
@@ -107,7 +115,7 @@ pub trait SpaceStrategy<const N: usize> {
     fn write_leaf(
         &mut self,
         origin: &mut dyn Origin,
-        leaf_slot_offset: u64,
+        slot: &Slot,
         record_offset: u64,
     ) -> Result<(), BindingError>;
 
@@ -160,7 +168,7 @@ impl<const N: usize> TreeStrategy<N> {
             record_slot_size >= SLOT_BYTES,
             "TreeStrategy: record_slot_size {record_slot_size} is below the 8-byte record header"
         );
-        let node_size = SLOT_BYTES * Coord::N_VALID as u64;
+        let node_size = BITMAP_BYTES + SLOT_BYTES * Coord::N_VALID as u64;
         Self {
             record_slot_size,
             bump: ROOT_OFFSET + node_size,
@@ -266,13 +274,19 @@ impl<const N: usize> TreeStrategy<N> {
         path: &mut [Coord; N],
         out: &mut Vec<(CoordPath<N>, u64)>,
     ) -> Result<(), BindingError> {
-        for index in 0..Coord::N_VALID as u64 {
-            let pos = node + index * SLOT_BYTES;
+        // Occupancy bitmap: enumerate present slots in memory instead of
+        // scanning the whole 11172-wide fan-out per node.
+        let bitmap = Self::read_bitmap(origin, node)?;
+        for index in 0..Coord::N_VALID as u16 {
+            if bitmap[index as usize / 8] & (1 << (index % 8)) == 0 {
+                continue;
+            }
+            let pos = Self::slot_pos(node, index);
             let value = Self::read_slot(origin, pos)?;
             if value == ABSENT {
                 continue;
             }
-            path[depth] = Coord::new(index as u16).expect("index below N_VALID");
+            path[depth] = Coord::new(index).expect("index below N_VALID");
             if depth + 1 == N {
                 out.push((CoordPath::new(*path), value));
             } else {
@@ -290,8 +304,12 @@ impl<const N: usize> TreeStrategy<N> {
         depth: usize,
     ) -> Result<u64, BindingError> {
         let mut count = 0u64;
-        for index in 0..Coord::N_VALID as u64 {
-            let pos = node + index * SLOT_BYTES;
+        let bitmap = Self::read_bitmap(origin, node)?;
+        for index in 0..Coord::N_VALID as u16 {
+            if bitmap[index as usize / 8] & (1 << (index % 8)) == 0 {
+                continue;
+            }
+            let pos = Self::slot_pos(node, index);
             let value = Self::read_slot(origin, pos)?;
             if value == ABSENT {
                 continue;
@@ -352,12 +370,11 @@ impl<const N: usize> TreeStrategy<N> {
     /// allocates each node before writing its pointer, so a pointer that
     /// reaches past the file is corruption, not absence.
     fn check_child_in_bounds(origin: &dyn Origin, child: u64) -> Result<(), BindingError> {
-        let end = child
-            .checked_add(SLOT_BYTES * Coord::N_VALID as u64)
-            .ok_or(BindingError::Corrupt {
-                node: child,
-                slot: 0,
-            })?;
+        let node_size = BITMAP_BYTES + SLOT_BYTES * Coord::N_VALID as u64;
+        let end = child.checked_add(node_size).ok_or(BindingError::Corrupt {
+            node: child,
+            slot: 0,
+        })?;
         if end > origin.len() {
             return Err(BindingError::Corrupt {
                 node: child,
@@ -367,8 +384,64 @@ impl<const N: usize> TreeStrategy<N> {
         Ok(())
     }
 
-    fn write_slot(origin: &mut dyn Origin, pos: u64, value: u64) -> Result<(), BindingError> {
+    /// Absolute position of the slot for `index` inside `node`.
+    fn slot_pos(node: u64, index: u16) -> u64 {
+        node + BITMAP_BYTES + index as u64 * SLOT_BYTES
+    }
+
+    /// Position of the occupancy bitmap byte covering `index` inside `node`.
+    fn bitmap_byte_pos(node: u64, index: u16) -> u64 {
+        node + index as u64 / 8
+    }
+
+    /// Read the node occupancy bitmap. A node at or beyond the file
+    /// length was never allocated, so every slot is absent.
+    fn read_bitmap(origin: &dyn Origin, node: u64) -> Result<Vec<u8>, BindingError> {
+        if node >= origin.len() {
+            return Ok(vec![0u8; BITMAP_BYTES as usize]);
+        }
+        let mut bitmap = vec![0u8; BITMAP_BYTES as usize];
+        let n = origin.read(node, &mut bitmap)?;
+        if n < BITMAP_BYTES as usize {
+            return Err(BindingError::Corrupt { node, slot: 0 });
+        }
+        Ok(bitmap)
+    }
+
+    /// Raw 8-byte write at an absolute position, no bitmap bookkeeping.
+    /// Used for record payload areas (the free list head lives in a
+    /// record slot, not a node slot).
+    fn write_u64(origin: &mut dyn Origin, pos: u64, value: u64) -> Result<(), BindingError> {
         origin.write(pos, &value.to_le_bytes())?;
+        Ok(())
+    }
+
+    fn write_slot(
+        origin: &mut dyn Origin,
+        node: u64,
+        index: u16,
+        value: u64,
+    ) -> Result<(), BindingError> {
+        let pos = Self::slot_pos(node, index);
+        Self::write_u64(origin, pos, value)?;
+        // Keep the occupancy bitmap in sync: set the bit when a value is
+        // present, clear it when the slot returns to absent. This is the
+        // cost that makes full enumeration read one bitmap per node
+        // instead of scanning the whole fan-out.
+        let byte_pos = Self::bitmap_byte_pos(node, index);
+        let bit = 1u8 << (index % 8);
+        let mut buf = [0u8; 1];
+        let n = origin.read(byte_pos, &mut buf)?;
+        if n < 1 {
+            return Err(BindingError::Corrupt { node, slot: 0 });
+        }
+        let mut byte = buf[0];
+        if value == ABSENT {
+            byte &= !bit;
+        } else {
+            byte |= bit;
+        }
+        origin.write(byte_pos, &[byte])?;
         Ok(())
     }
 }
@@ -385,16 +458,20 @@ impl<const N: usize> SpaceStrategy<N> for TreeStrategy<N> {
                     });
                 }
             };
-            let slot_pos = node + coord.index() as u64 * SLOT_BYTES;
+            let slot_pos = Self::slot_pos(node, coord.index());
             let value = Self::read_slot(origin, slot_pos)?;
             if depth == N - 1 {
                 return Ok(Slot {
+                    leaf_node: node,
+                    leaf_index: coord.index(),
                     leaf_slot_offset: slot_pos,
                     record_offset: value,
                 });
             }
             if value == ABSENT {
                 return Ok(Slot {
+                    leaf_node: node,
+                    leaf_index: coord.index(),
                     leaf_slot_offset: slot_pos,
                     record_offset: ABSENT,
                 });
@@ -422,11 +499,13 @@ impl<const N: usize> SpaceStrategy<N> for TreeStrategy<N> {
                     });
                 }
             };
-            let slot_pos = node + coord.index() as u64 * SLOT_BYTES;
+            let slot_pos = Self::slot_pos(node, coord.index());
             let value = Self::read_slot(origin, slot_pos)?;
 
             if depth == N - 1 {
                 return Ok(Slot {
+                    leaf_node: node,
+                    leaf_index: coord.index(),
                     leaf_slot_offset: slot_pos,
                     record_offset: value,
                 });
@@ -434,7 +513,7 @@ impl<const N: usize> SpaceStrategy<N> for TreeStrategy<N> {
 
             if value == ABSENT {
                 let child = self.alloc_node(origin)?;
-                Self::write_slot(origin, slot_pos, child)?;
+                Self::write_slot(origin, node, coord.index(), child)?;
                 node = child;
             } else {
                 Self::check_child_in_bounds(origin, value)?;
@@ -449,10 +528,10 @@ impl<const N: usize> SpaceStrategy<N> for TreeStrategy<N> {
     fn write_leaf(
         &mut self,
         origin: &mut dyn Origin,
-        leaf_slot_offset: u64,
+        slot: &Slot,
         record_offset: u64,
     ) -> Result<(), BindingError> {
-        Self::write_slot(origin, leaf_slot_offset, record_offset)
+        Self::write_slot(origin, slot.leaf_node, slot.leaf_index, record_offset)
     }
 
     fn alloc_record(&mut self, origin: &mut dyn Origin) -> Result<u64, BindingError> {
@@ -481,7 +560,9 @@ impl<const N: usize> SpaceStrategy<N> for TreeStrategy<N> {
     }
 
     fn free_record(&mut self, origin: &mut dyn Origin, offset: u64) -> Result<(), BindingError> {
-        Self::write_slot(origin, offset, self.free_head)?;
+        // The free list head lives in the record payload area: a raw
+        // write, no occupancy bitmap (that bitmap covers node slots).
+        Self::write_u64(origin, offset, self.free_head)?;
         self.free_head = offset;
         Ok(())
     }

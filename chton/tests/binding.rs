@@ -48,9 +48,7 @@ fn write_leaf_and_free_list_reuse() {
 
     let slot = strategy.locate_or_create(&mut origin, &key).unwrap();
     let rec = strategy.alloc_record(&mut origin).unwrap();
-    strategy
-        .write_leaf(&mut origin, slot.leaf_slot_offset, rec)
-        .unwrap();
+    strategy.write_leaf(&mut origin, &slot, rec).unwrap();
 
     let got = strategy.locate(&origin, &key).unwrap();
     assert_eq!(got.record_offset, rec);
@@ -131,9 +129,7 @@ fn truncated_slot_inside_allocated_region_is_corrupt() {
     let slot = strategy.locate_or_create(&mut origin, &key).unwrap();
     let record = strategy.alloc_record(&mut origin).unwrap();
     origin.write(record, &[0xAB; 8]).unwrap();
-    strategy
-        .write_leaf(&mut origin, slot.leaf_slot_offset, record)
-        .unwrap();
+    strategy.write_leaf(&mut origin, &slot, record).unwrap();
 
     // Truncate mid-slot: the region was allocated, so a partial read
     // there is corruption, not absence.
@@ -151,9 +147,7 @@ fn truncation_to_slot_boundary_reads_as_absent() {
     let slot = strategy.locate_or_create(&mut origin, &key).unwrap();
     let record = strategy.alloc_record(&mut origin).unwrap();
     origin.write(record, &[0xAB; 8]).unwrap();
-    strategy
-        .write_leaf(&mut origin, slot.leaf_slot_offset, record)
-        .unwrap();
+    strategy.write_leaf(&mut origin, &slot, record).unwrap();
 
     // Truncating exactly to the slot start removes the slot itself: the
     // read is absence, the boundary between absent and corrupt.
@@ -174,9 +168,7 @@ fn strategy_works_through_trait_object() {
     let slot = strategy.locate_or_create(&mut origin, &key).unwrap();
     let record = strategy.alloc_record(&mut origin).unwrap();
     origin.write(record, &[0xCD; 8]).unwrap();
-    strategy
-        .write_leaf(&mut origin, slot.leaf_slot_offset, record)
-        .unwrap();
+    strategy.write_leaf(&mut origin, &slot, record).unwrap();
 
     let got = strategy.locate(&origin, &key).unwrap();
     assert_eq!(got.record_offset, record);
@@ -195,9 +187,7 @@ fn iter_yields_inserted_paths() {
     for k in &keys {
         let slot = strategy.locate_or_create(&mut origin, k).unwrap();
         let rec = strategy.alloc_record(&mut origin).unwrap();
-        strategy
-            .write_leaf(&mut origin, slot.leaf_slot_offset, rec)
-            .unwrap();
+        strategy.write_leaf(&mut origin, &slot, rec).unwrap();
     }
 
     let entries = strategy.iter(&origin).unwrap();
@@ -222,7 +212,7 @@ fn child_pointer_beyond_file_is_corrupt() {
     // Truncate the origin to the root span: the leaf node is gone but
     // the root slot still points at it. Following the pointer must fail
     // loudly, not read the missing region as absence.
-    let root_span = 64 + 8 * Coord::N_VALID as u64;
+    let root_span = 64 + (Coord::N_VALID as u64).div_ceil(8) + 8 * Coord::N_VALID as u64;
     let truncated = MemoryOrigin::with_bytes(origin.as_slice()[..root_span as usize].to_vec());
     let err = strategy.locate(&truncated, &key).unwrap_err();
     assert!(matches!(err, BindingError::Corrupt { .. }));

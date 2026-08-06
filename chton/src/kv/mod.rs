@@ -201,8 +201,7 @@ impl<const N: usize> CoordKVStore<N> {
             slot.record_offset
         } else {
             let record = self.strategy.alloc_record(&mut *self.origin)?;
-            self.strategy
-                .write_leaf(&mut *self.origin, slot.leaf_slot_offset, record)?;
+            self.strategy.write_leaf(&mut *self.origin, &slot, record)?;
             self.len += 1;
             record
         };
@@ -225,8 +224,7 @@ impl<const N: usize> CoordKVStore<N> {
         let prev = self.read_record(slot.record_offset)?;
         self.strategy
             .free_record(&mut *self.origin, slot.record_offset)?;
-        self.strategy
-            .write_leaf(&mut *self.origin, slot.leaf_slot_offset, 0)?;
+        self.strategy.write_leaf(&mut *self.origin, &slot, 0)?;
         self.len = self.len.saturating_sub(1);
         self.dirty.set(true);
         Ok(Some(prev))
