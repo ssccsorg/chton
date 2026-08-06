@@ -119,7 +119,10 @@ impl<const N: usize> CoordKVStore<N> {
     /// create a fresh store with `default_record_slot_size`.
     pub fn load(origin: Box<dyn Origin>, default_record_slot_size: u64) -> Result<Self, KvError> {
         let strategy = TreeStrategy::<N>::load_or_new(&*origin, default_record_slot_size)?;
-        let len = strategy.count_records(&*origin)? as usize;
+        // The record count is persisted in the header, so a reopen reads
+        // it directly instead of walking the whole tree (O(nodes x
+        // fan-out) for the sparse 11172-wide layout).
+        let len = strategy.record_count() as usize;
         Ok(Self {
             strategy,
             origin,
@@ -136,6 +139,7 @@ impl<const N: usize> CoordKVStore<N> {
 
     /// Persist strategy state and flush the origin to the medium.
     pub fn flush(&mut self) -> Result<(), KvError> {
+        self.strategy.set_record_count(self.len as u64);
         self.strategy.flush(&mut *self.origin)?;
         self.origin.flush()?;
         self.dirty.set(false);

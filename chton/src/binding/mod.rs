@@ -142,6 +142,9 @@ pub struct TreeStrategy<const N: usize> {
     bump: u64,
     free_head: u64,
     node_size: u64,
+    /// Materialized record count, persisted in the header so a reopen
+    /// needs no tree walk. Kept in sync by the kv layer on flush.
+    record_count: u64,
 }
 
 impl<const N: usize> TreeStrategy<N> {
@@ -163,6 +166,7 @@ impl<const N: usize> TreeStrategy<N> {
             bump: ROOT_OFFSET + node_size,
             free_head: ABSENT,
             node_size,
+            record_count: 0,
         }
     }
 
@@ -208,6 +212,7 @@ impl<const N: usize> TreeStrategy<N> {
         self.record_slot_size = record_slot_size;
         self.bump = u64::from_le_bytes(header[8..16].try_into().unwrap());
         self.free_head = u64::from_le_bytes(header[16..24].try_into().unwrap());
+        self.record_count = u64::from_le_bytes(header[40..48].try_into().unwrap());
         // The bump pointer must stay past the root span; a header that
         // points into the header or root is corrupt.
         if self.bump < ROOT_OFFSET + self.node_size {
@@ -223,10 +228,21 @@ impl<const N: usize> TreeStrategy<N> {
     }
 
     /// Count materialized records: the number of leaf slots holding a
-    /// non-absent record offset. Walks the whole tree; used to restore
-    /// the entry count when a store is reopened.
+    /// non-absent record offset. Walks the whole tree; kept as a
+    /// validation helper. Reopen uses the persisted header count instead.
     pub fn count_records(&self, origin: &dyn Origin) -> Result<u64, BindingError> {
         self.count_node(origin, ROOT_OFFSET, 0)
+    }
+
+    /// The persisted materialized record count (restored from the header
+    /// on load, updated by the kv layer on flush).
+    pub fn record_count(&self) -> u64 {
+        self.record_count
+    }
+
+    /// Set the materialized record count for the next header write.
+    pub fn set_record_count(&mut self, count: u64) {
+        self.record_count = count;
     }
 
     /// Iterate all materialized records: coordinate paths with their
@@ -298,6 +314,7 @@ impl<const N: usize> TreeStrategy<N> {
         header[16..24].copy_from_slice(&self.free_head.to_le_bytes());
         header[24..32].copy_from_slice(&self.node_size.to_le_bytes());
         header[32..40].copy_from_slice(&self.record_slot_size.to_le_bytes());
+        header[40..48].copy_from_slice(&self.record_count.to_le_bytes());
         origin.write(0, &header)?;
         Ok(())
     }
@@ -481,6 +498,7 @@ impl<const N: usize> SpaceStrategy<N> for TreeStrategy<N> {
     fn reset(&mut self, origin: &mut dyn Origin) -> Result<(), BindingError> {
         self.bump = ROOT_OFFSET + self.node_size;
         self.free_head = ABSENT;
+        self.record_count = 0;
         origin.write(ROOT_OFFSET, &vec![0u8; self.node_size as usize])?;
         self.write_header(origin)?;
         Ok(())
