@@ -12,17 +12,22 @@
 // - `KvEntityStore<N, V>`: CoordKVStore-backed materialized store; the
 //   value codec (postcard) sits at the record boundary, the seam for a
 //   future codec layer.
+//
+// Key contract: canonical keys are exactly N Hangul characters (the
+// CoordId string form) and map injectively. Any other key maps through a
+// SHA-256 fingerprint, so collisions are negligible and key length is
+// unbounded. Do not mix the two formats for the same key.
 
 use std::collections::HashMap;
 use std::marker::PhantomData;
 
+use crate::cell::Cell2;
 use crate::kv::CoordKVStore;
 use crate::origin::Origin;
 use async_trait::async_trait;
+use sha2::Digest;
 use tagma_core::{Coord, CoordPath, CoordSpaceN};
 use tagma_kv::CoordKV;
-
-use crate::cell::Cell2;
 
 // ── EntityStore trait ────────────────────────────────────────────────────
 
@@ -67,16 +72,21 @@ where
 
 // ── CoordEntityStore: CoordSpaceN-backed EntityStore ──────────────────
 
-/// Map a string key to a CoordPath<N> deterministically without hashing.
+/// Map a string key to a CoordPath<N> deterministically.
 ///
-/// Two formats:
-/// - N-character Hangul: each character is a direct Coord (Phase 2+, CoordId format)
-/// - Other keys: the tagma-kv ByteWise mapping, one Coord per UTF-8 byte.
-///   Injective for keys of at most N bytes; shorter keys zero-pad and
-///   longer keys truncate at the first N bytes.
+/// Two formats, matching the CoordId string convention:
+/// - N-character Hangul: each character maps directly to a Coord. This
+///   path is injective; it is the canonical key form.
+/// - Any other key: SHA-256 fingerprint split across the N coords (mod
+///   11172 each). Collisions are negligible (256-bit digest over about
+///   13.4-bit coords), key length is unbounded, and there is no
+///   truncation or zero-padding, so keys that previously collided under
+///   a byte-wise mapping ("ab" vs "ab\0", keys longer than N bytes, byte
+///   keys vs Hangul keys sharing leading coords) now map to distinct
+///   paths.
 pub fn str_to_coordpath<const N: usize>(key: &str) -> CoordPath<N> {
     let chars: Vec<char> = key.chars().collect();
-    // Fast path: N-character Hangul key → direct Coord mapping
+    // Canonical path: N-character Hangul key → direct Coord mapping.
     if chars.len() == N && chars.iter().all(|c| Coord::from_char(*c).is_some()) {
         let mut coords = [Coord::new(0).unwrap(); N];
         for (i, &ch) in chars.iter().enumerate() {
@@ -84,24 +94,25 @@ pub fn str_to_coordpath<const N: usize>(key: &str) -> CoordPath<N> {
         }
         return CoordPath::new(coords);
     }
-    // ByteWise fallback: each UTF-8 byte is one Coord. The generated
-    // vector is at most N coords for keys of at most N bytes; longer keys
-    // truncate and shorter keys keep the zero padding below.
-    let generated = tagma_kv::string_to_coord_path(key).unwrap_or_default();
+    // Hash fallback for arbitrary keys.
+    let digest = sha2::Sha256::digest(key.as_bytes());
     let mut coords = [Coord::new(0).unwrap(); N];
     for (i, coord) in coords.iter_mut().enumerate() {
-        if let Some(c) = generated.get(i) {
-            *coord = *c;
-        }
+        let idx = u16::from_le_bytes([
+            digest.get(i * 2).copied().unwrap_or(0),
+            digest.get(i * 2 + 1).copied().unwrap_or(0),
+        ]) % 11172;
+        *coord = Coord::new(idx).unwrap();
     }
     CoordPath::new(coords)
 }
 
 /// EntityStore backed by CoordSpaceN instead of HashMap.
 ///
-/// String keys are mapped to CoordPath<N> deterministically.
-/// This is the bridge between the current FihHash-hex-keyed storage
-/// interface and the future CoordPath-native storage.
+/// String keys map through [`str_to_coordpath`]: canonical N-Hangul keys
+/// directly, any other key through a SHA-256 fingerprint. This is the
+/// bridge between the current string-keyed storage interface and
+/// CoordPath-native storage.
 pub struct CoordEntityStore<const N: usize, V> {
     inner: Cell2<CoordSpaceN<N, V>>,
 }
@@ -138,9 +149,10 @@ where
     /// (axis, value) pairs BEFORE cloning. Avoids string comparison
     /// when the filter corresponds to known axis indices.
     ///
-    /// Falls back to full scan (path coord check is still faster than
-    /// string compare), but when axes 0..k are fully specified, uses
-    /// `iter_prefix` for O(subtree) traversal.
+    /// Precondition: `axis_checks` must be sorted by axis. Only a check
+    /// set that covers axes 0..k contiguously from the start takes the
+    /// O(subtree) `iter_prefix` path; any other shape silently falls back
+    /// to a full scan with path-coord checks.
     pub async fn axis_filtered(&self, axis_checks: &[(usize, u16)]) -> Vec<V>
     where
         V: Send,
@@ -220,6 +232,54 @@ where
         }
         Some(results)
     }
+
+    // ── EntityStore behavior (single source, platform-agnostic) ────────
+
+    pub(crate) async fn get_entry(&self, key: &str) -> Option<V> {
+        let path = str_to_coordpath::<N>(key);
+        self.inner.borrow().at_path(&path).cloned()
+    }
+
+    pub(crate) async fn insert_entry(&self, key: String, value: V) -> Option<V> {
+        let path = str_to_coordpath::<N>(&key);
+        self.inner.borrow_mut().place_path(&path, value)
+    }
+
+    pub(crate) async fn remove_entry(&self, key: &str) -> Option<V> {
+        let path = str_to_coordpath::<N>(key);
+        self.inner.borrow_mut().vacate_path(&path)
+    }
+
+    pub(crate) async fn contains_entry(&self, key: &str) -> bool {
+        let path = str_to_coordpath::<N>(key);
+        self.inner.borrow().at_path(&path).is_some()
+    }
+
+    pub(crate) async fn entry_count(&self) -> usize {
+        self.inner.borrow().len()
+    }
+
+    pub(crate) async fn all_values(&self) -> Vec<V> {
+        let space = self.inner.borrow();
+        let mut values = Vec::with_capacity(space.len());
+        for (_path, v) in space.iter_tree() {
+            values.push(v.clone());
+        }
+        values
+    }
+
+    pub(crate) async fn clear_entries(&self) {
+        self.inner.borrow_mut().clear();
+    }
+
+    pub(crate) async fn replace_entries(&self, entries: Vec<(String, V)>) {
+        let mut space = self.inner.borrow_mut();
+        space.clear();
+        for (key, value) in entries {
+            let path = str_to_coordpath::<N>(&key);
+            space.place_path(&path, value);
+        }
+    }
 }
 
 impl<const N: usize, V> Default for CoordEntityStore<N, V>
@@ -238,49 +298,28 @@ where
     V: Clone + Send + 'static,
 {
     async fn get(&self, key: &str) -> Option<V> {
-        let path = str_to_coordpath::<N>(key);
-        self.inner.borrow().at_path(&path).cloned()
+        self.get_entry(key).await
     }
-
     async fn insert(&self, key: String, value: V) -> Option<V> {
-        let path = str_to_coordpath::<N>(&key);
-        self.inner.borrow_mut().place_path(&path, value)
+        self.insert_entry(key, value).await
     }
-
     async fn remove(&self, key: &str) -> Option<V> {
-        let path = str_to_coordpath::<N>(key);
-        self.inner.borrow_mut().vacate_path(&path)
+        self.remove_entry(key).await
     }
-
     async fn contains_key(&self, key: &str) -> bool {
-        let path = str_to_coordpath::<N>(key);
-        self.inner.borrow().at_path(&path).is_some()
+        self.contains_entry(key).await
     }
-
     async fn len(&self) -> usize {
-        self.inner.borrow().len()
+        self.entry_count().await
     }
-
     async fn values(&self) -> Vec<V> {
-        let space = self.inner.borrow();
-        let mut values = Vec::with_capacity(space.len());
-        for (_path, v) in space.iter_tree() {
-            values.push(v.clone());
-        }
-        values
+        self.all_values().await
     }
-
     async fn clear(&self) {
-        self.inner.borrow_mut().clear();
+        self.clear_entries().await
     }
-
     async fn replace_from(&self, entries: Vec<(String, V)>) {
-        let mut space = self.inner.borrow_mut();
-        space.clear();
-        for (key, value) in entries {
-            let path = str_to_coordpath::<N>(&key);
-            space.place_path(&path, value);
-        }
+        self.replace_entries(entries).await
     }
 }
 
@@ -291,49 +330,28 @@ where
     V: Clone + 'static,
 {
     async fn get(&self, key: &str) -> Option<V> {
-        let path = str_to_coordpath::<N>(key);
-        self.inner.borrow().at_path(&path).cloned()
+        self.get_entry(key).await
     }
-
     async fn insert(&self, key: String, value: V) -> Option<V> {
-        let path = str_to_coordpath::<N>(&key);
-        self.inner.borrow_mut().place_path(&path, value)
+        self.insert_entry(key, value).await
     }
-
     async fn remove(&self, key: &str) -> Option<V> {
-        let path = str_to_coordpath::<N>(key);
-        self.inner.borrow_mut().vacate_path(&path)
+        self.remove_entry(key).await
     }
-
     async fn contains_key(&self, key: &str) -> bool {
-        let path = str_to_coordpath::<N>(key);
-        self.inner.borrow().at_path(&path).is_some()
+        self.contains_entry(key).await
     }
-
     async fn len(&self) -> usize {
-        self.inner.borrow().len()
+        self.entry_count().await
     }
-
     async fn values(&self) -> Vec<V> {
-        let space = self.inner.borrow();
-        let mut values = Vec::with_capacity(space.len());
-        for (_path, v) in space.iter_tree() {
-            values.push(v.clone());
-        }
-        values
+        self.all_values().await
     }
-
     async fn clear(&self) {
-        self.inner.borrow_mut().clear();
+        self.clear_entries().await
     }
-
     async fn replace_from(&self, entries: Vec<(String, V)>) {
-        let mut space = self.inner.borrow_mut();
-        space.clear();
-        for (key, value) in entries {
-            let path = str_to_coordpath::<N>(&key);
-            space.place_path(&path, value);
-        }
+        self.replace_entries(entries).await
     }
 }
 
@@ -353,6 +371,42 @@ where
             inner: Cell2::new(HashMap::new()),
         }
     }
+
+    // ── EntityStore behavior (single source, platform-agnostic) ────────
+
+    pub(crate) async fn get_entry(&self, key: &str) -> Option<V> {
+        self.inner.borrow().get(key).cloned()
+    }
+
+    pub(crate) async fn insert_entry(&self, key: String, value: V) -> Option<V> {
+        self.inner.borrow_mut().insert(key, value)
+    }
+
+    pub(crate) async fn remove_entry(&self, key: &str) -> Option<V> {
+        self.inner.borrow_mut().remove(key)
+    }
+
+    pub(crate) async fn contains_entry(&self, key: &str) -> bool {
+        self.inner.borrow().contains_key(key)
+    }
+
+    pub(crate) async fn entry_count(&self) -> usize {
+        self.inner.borrow().len()
+    }
+
+    pub(crate) async fn all_values(&self) -> Vec<V> {
+        self.inner.borrow().values().cloned().collect()
+    }
+
+    pub(crate) async fn clear_entries(&self) {
+        self.inner.borrow_mut().clear();
+    }
+
+    pub(crate) async fn replace_entries(&self, entries: Vec<(String, V)>) {
+        let mut map = self.inner.borrow_mut();
+        map.clear();
+        map.extend(entries);
+    }
 }
 
 impl<V> Default for MemoryEntityStore<V>
@@ -371,37 +425,28 @@ where
     V: Clone + Send + 'static,
 {
     async fn get(&self, key: &str) -> Option<V> {
-        self.inner.borrow().get(key).cloned()
+        self.get_entry(key).await
     }
-
     async fn insert(&self, key: String, value: V) -> Option<V> {
-        self.inner.borrow_mut().insert(key, value)
+        self.insert_entry(key, value).await
     }
-
     async fn remove(&self, key: &str) -> Option<V> {
-        self.inner.borrow_mut().remove(key)
+        self.remove_entry(key).await
     }
-
     async fn contains_key(&self, key: &str) -> bool {
-        self.inner.borrow().contains_key(key)
+        self.contains_entry(key).await
     }
-
     async fn len(&self) -> usize {
-        self.inner.borrow().len()
+        self.entry_count().await
     }
-
     async fn values(&self) -> Vec<V> {
-        self.inner.borrow().values().cloned().collect()
+        self.all_values().await
     }
-
     async fn clear(&self) {
-        self.inner.borrow_mut().clear();
+        self.clear_entries().await
     }
-
     async fn replace_from(&self, entries: Vec<(String, V)>) {
-        let mut map = self.inner.borrow_mut();
-        map.clear();
-        map.extend(entries);
+        self.replace_entries(entries).await
     }
 }
 
@@ -412,37 +457,28 @@ where
     V: Clone + 'static,
 {
     async fn get(&self, key: &str) -> Option<V> {
-        self.inner.borrow().get(key).cloned()
+        self.get_entry(key).await
     }
-
     async fn insert(&self, key: String, value: V) -> Option<V> {
-        self.inner.borrow_mut().insert(key, value)
+        self.insert_entry(key, value).await
     }
-
     async fn remove(&self, key: &str) -> Option<V> {
-        self.inner.borrow_mut().remove(key)
+        self.remove_entry(key).await
     }
-
     async fn contains_key(&self, key: &str) -> bool {
-        self.inner.borrow().contains_key(key)
+        self.contains_entry(key).await
     }
-
     async fn len(&self) -> usize {
-        self.inner.borrow().len()
+        self.entry_count().await
     }
-
     async fn values(&self) -> Vec<V> {
-        self.inner.borrow().values().cloned().collect()
+        self.all_values().await
     }
-
     async fn clear(&self) {
-        self.inner.borrow_mut().clear();
+        self.clear_entries().await
     }
-
     async fn replace_from(&self, entries: Vec<(String, V)>) {
-        let mut map = self.inner.borrow_mut();
-        map.clear();
-        map.extend(entries);
+        self.replace_entries(entries).await
     }
 }
 
@@ -456,6 +492,11 @@ where
 /// is flushed: `flush` persists the strategy header and the origin, and
 /// `is_buffered` reports whether non-durable state exists.
 ///
+/// The trait surface is infallible, so IO and codec errors panic with a
+/// descriptive message once the interior borrow is released: a failed
+/// operation never leaves the backing mutex poisoned. This mirrors the
+/// tagma-kv CoordKV contract.
+///
 /// The record boundary is the same codec seam as the FileIo surface: the
 /// value bytes are opaque to the kv, so a future cipher layer would sit
 /// here without changing the trait surface.
@@ -464,7 +505,10 @@ pub struct KvEntityStore<const N: usize, V> {
     marker: PhantomData<V>,
 }
 
-impl<const N: usize, V> KvEntityStore<N, V> {
+impl<const N: usize, V> KvEntityStore<N, V>
+where
+    V: Clone + serde::Serialize + serde::de::DeserializeOwned,
+{
     /// Create a fresh store over `origin`. The origin must be empty;
     /// `load` opens an existing store.
     pub fn new(origin: Box<dyn Origin>, record_slot_size: u64) -> Self {
@@ -493,6 +537,107 @@ impl<const N: usize, V> KvEntityStore<N, V> {
     pub fn flush(&self) -> Result<(), String> {
         self.inner.borrow_mut().flush().map_err(|e| e.to_string())
     }
+
+    // ── EntityStore behavior (single source, platform-agnostic) ────────
+
+    pub(crate) async fn get_entry(&self, key: &str) -> Option<V> {
+        let path = str_to_coordpath::<N>(key);
+        let result = {
+            let kv = self.inner.borrow();
+            kv.get_path(&path)
+        };
+        match result {
+            Ok(value) => value.map(decode_value),
+            Err(e) => panic!("kv entity store get failed: {e}"),
+        }
+    }
+
+    pub(crate) async fn insert_entry(&self, key: String, value: V) -> Option<V> {
+        let path = str_to_coordpath::<N>(&key);
+        let bytes = encode_value(&value);
+        let result = {
+            let mut kv = self.inner.borrow_mut();
+            kv.put_path(&path, &bytes)
+        };
+        match result {
+            Ok(prev) => prev.map(decode_value),
+            Err(e) => panic!("kv entity store insert failed: {e}"),
+        }
+    }
+
+    pub(crate) async fn remove_entry(&self, key: &str) -> Option<V> {
+        let path = str_to_coordpath::<N>(key);
+        let result = {
+            let mut kv = self.inner.borrow_mut();
+            kv.remove_path(&path)
+        };
+        match result {
+            Ok(prev) => prev.map(decode_value),
+            Err(e) => panic!("kv entity store remove failed: {e}"),
+        }
+    }
+
+    pub(crate) async fn contains_entry(&self, key: &str) -> bool {
+        let path = str_to_coordpath::<N>(key);
+        let result = {
+            let kv = self.inner.borrow();
+            kv.get_path(&path)
+        };
+        match result {
+            Ok(value) => value.is_some(),
+            Err(e) => panic!("kv entity store get failed: {e}"),
+        }
+    }
+
+    pub(crate) async fn entry_count(&self) -> usize {
+        self.inner.borrow().len()
+    }
+
+    pub(crate) async fn all_values(&self) -> Vec<V> {
+        let result = {
+            let kv = self.inner.borrow();
+            kv.iter()
+        };
+        let entries = match result {
+            Ok(entries) => entries,
+            Err(e) => panic!("kv entity store iter failed: {e}"),
+        };
+        entries
+            .into_iter()
+            .map(|(_, value)| decode_value(value))
+            .collect()
+    }
+
+    pub(crate) async fn clear_entries(&self) {
+        let result = {
+            let mut kv = self.inner.borrow_mut();
+            kv.clear_checked()
+        };
+        if let Err(e) = result {
+            panic!("kv entity store clear failed: {e}");
+        }
+    }
+
+    pub(crate) async fn replace_entries(&self, entries: Vec<(String, V)>) {
+        // Encode before borrowing so a codec panic never holds the guard.
+        let encoded: Vec<(CoordPath<N>, Vec<u8>)> = entries
+            .into_iter()
+            .map(|(key, value)| (str_to_coordpath::<N>(&key), encode_value(&value)))
+            .collect();
+        let result = {
+            let mut kv = self.inner.borrow_mut();
+            (|| -> Result<(), String> {
+                kv.clear_checked().map_err(|e| e.to_string())?;
+                for (path, bytes) in encoded {
+                    kv.put_path(&path, &bytes).map_err(|e| e.to_string())?;
+                }
+                Ok(())
+            })()
+        };
+        if let Err(e) = result {
+            panic!("kv entity store replace failed: {e}");
+        }
+    }
 }
 
 /// Decode a stored value, panicking at the trait boundary. The
@@ -520,74 +665,28 @@ where
     V: Clone + Send + Sync + 'static + serde::Serialize + serde::de::DeserializeOwned,
 {
     async fn get(&self, key: &str) -> Option<V> {
-        let path = str_to_coordpath::<N>(key);
-        let value = self
-            .inner
-            .borrow()
-            .get_path(&path)
-            .unwrap_or_else(|e| panic!("kv entity store get failed: {e}"))?;
-        Some(decode_value(value))
+        self.get_entry(key).await
     }
-
     async fn insert(&self, key: String, value: V) -> Option<V> {
-        let path = str_to_coordpath::<N>(&key);
-        let bytes = encode_value(&value);
-        let prev = self
-            .inner
-            .borrow_mut()
-            .put_path(&path, &bytes)
-            .unwrap_or_else(|e| panic!("kv entity store insert failed: {e}"));
-        prev.map(decode_value)
+        self.insert_entry(key, value).await
     }
-
     async fn remove(&self, key: &str) -> Option<V> {
-        let path = str_to_coordpath::<N>(key);
-        let prev = self
-            .inner
-            .borrow_mut()
-            .remove_path(&path)
-            .unwrap_or_else(|e| panic!("kv entity store remove failed: {e}"));
-        prev.map(decode_value)
+        self.remove_entry(key).await
     }
-
     async fn contains_key(&self, key: &str) -> bool {
-        let path = str_to_coordpath::<N>(key);
-        self.inner
-            .borrow()
-            .get_path(&path)
-            .unwrap_or_else(|e| panic!("kv entity store get failed: {e}"))
-            .is_some()
+        self.contains_entry(key).await
     }
-
     async fn len(&self) -> usize {
-        self.inner.borrow().len()
+        self.entry_count().await
     }
-
     async fn values(&self) -> Vec<V> {
-        let entries = self
-            .inner
-            .borrow()
-            .iter()
-            .unwrap_or_else(|e| panic!("kv entity store iter failed: {e}"));
-        entries
-            .into_iter()
-            .map(|(_, value)| decode_value(value))
-            .collect()
+        self.all_values().await
     }
-
     async fn clear(&self) {
-        self.inner.borrow_mut().clear();
+        self.clear_entries().await
     }
-
     async fn replace_from(&self, entries: Vec<(String, V)>) {
-        let mut kv = self.inner.borrow_mut();
-        kv.clear();
-        for (key, value) in entries {
-            let path = str_to_coordpath::<N>(&key);
-            let bytes = encode_value(&value);
-            kv.put_path(&path, &bytes)
-                .unwrap_or_else(|e| panic!("kv entity store insert failed: {e}"));
-        }
+        self.replace_entries(entries).await
     }
 }
 
@@ -598,73 +697,27 @@ where
     V: Clone + 'static + serde::Serialize + serde::de::DeserializeOwned,
 {
     async fn get(&self, key: &str) -> Option<V> {
-        let path = str_to_coordpath::<N>(key);
-        let value = self
-            .inner
-            .borrow()
-            .get_path(&path)
-            .unwrap_or_else(|e| panic!("kv entity store get failed: {e}"))?;
-        Some(decode_value(value))
+        self.get_entry(key).await
     }
-
     async fn insert(&self, key: String, value: V) -> Option<V> {
-        let path = str_to_coordpath::<N>(&key);
-        let bytes = encode_value(&value);
-        let prev = self
-            .inner
-            .borrow_mut()
-            .put_path(&path, &bytes)
-            .unwrap_or_else(|e| panic!("kv entity store insert failed: {e}"));
-        prev.map(decode_value)
+        self.insert_entry(key, value).await
     }
-
     async fn remove(&self, key: &str) -> Option<V> {
-        let path = str_to_coordpath::<N>(key);
-        let prev = self
-            .inner
-            .borrow_mut()
-            .remove_path(&path)
-            .unwrap_or_else(|e| panic!("kv entity store remove failed: {e}"));
-        prev.map(decode_value)
+        self.remove_entry(key).await
     }
-
     async fn contains_key(&self, key: &str) -> bool {
-        let path = str_to_coordpath::<N>(key);
-        self.inner
-            .borrow()
-            .get_path(&path)
-            .unwrap_or_else(|e| panic!("kv entity store get failed: {e}"))
-            .is_some()
+        self.contains_entry(key).await
     }
-
     async fn len(&self) -> usize {
-        self.inner.borrow().len()
+        self.entry_count().await
     }
-
     async fn values(&self) -> Vec<V> {
-        let entries = self
-            .inner
-            .borrow()
-            .iter()
-            .unwrap_or_else(|e| panic!("kv entity store iter failed: {e}"));
-        entries
-            .into_iter()
-            .map(|(_, value)| decode_value(value))
-            .collect()
+        self.all_values().await
     }
-
     async fn clear(&self) {
-        self.inner.borrow_mut().clear();
+        self.clear_entries().await
     }
-
     async fn replace_from(&self, entries: Vec<(String, V)>) {
-        let mut kv = self.inner.borrow_mut();
-        kv.clear();
-        for (key, value) in entries {
-            let path = str_to_coordpath::<N>(&key);
-            let bytes = encode_value(&value);
-            kv.put_path(&path, &bytes)
-                .unwrap_or_else(|e| panic!("kv entity store insert failed: {e}"));
-        }
+        self.replace_entries(entries).await
     }
 }

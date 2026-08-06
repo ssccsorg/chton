@@ -77,14 +77,77 @@ fn coord_entity_store_round_trip_and_axis_filter() {
         assert_eq!(store.len().await, 2);
 
         // axis_filtered: match on the creator axis (axis 4) value produced
-        // by the ByteWise key mapping; the two keys differ in the first
-        // byte, so filtering on that axis value selects exactly one.
+        // by the key mapping; the filter axis is taken from the key's own
+        // mapped path, so it selects exactly that key's entry.
         let a_coord = chton::store::str_to_coordpath::<6>("doc_a");
         let matched = store
             .axis_filtered(&[(4, a_coord.coords()[4].index())])
             .await;
         assert_eq!(matched.len(), 1);
         assert_eq!(matched[0].title, "alpha");
+    });
+}
+
+#[test]
+fn str_to_coordpath_has_no_truncation_or_padding_collisions() {
+    // Key classes that collided under the previous byte-wise mapping must
+    // now be distinct: prefix keys with and without a trailing NUL, a key
+    // longer than N bytes (truncation), and a byte key vs a Hangul key
+    // sharing leading coordinates (cross-format).
+    let store = CoordEntityStore::<6, Doc>::new();
+    block_on(async {
+        store.insert("ab".into(), Doc { title: "ab".into() }).await;
+        store
+            .insert(
+                "ab\x00".into(),
+                Doc {
+                    title: "ab-nul".into(),
+                },
+            )
+            .await;
+        store
+            .insert(
+                "abcdef".into(),
+                Doc {
+                    title: "six".into(),
+                },
+            )
+            .await;
+        store
+            .insert(
+                "abcdefghijklmnop".into(),
+                Doc {
+                    title: "long".into(),
+                },
+            )
+            .await;
+        store
+            .insert(
+                "가각간갈감갑".into(),
+                Doc {
+                    title: "hangul".into(),
+                },
+            )
+            .await;
+        store
+            .insert(
+                "\x00\x01\x02\x03\x04\x05".into(),
+                Doc {
+                    title: "bytes".into(),
+                },
+            )
+            .await;
+
+        assert_eq!(store.len().await, 6, "no key may collide");
+        assert_eq!(store.get("ab").await.unwrap().title, "ab");
+        assert_eq!(store.get("ab\x00").await.unwrap().title, "ab-nul");
+        assert_eq!(store.get("abcdef").await.unwrap().title, "six");
+        assert_eq!(store.get("abcdefghijklmnop").await.unwrap().title, "long");
+        assert_eq!(store.get("가각간갈감갑").await.unwrap().title, "hangul");
+        assert_eq!(
+            store.get("\x00\x01\x02\x03\x04\x05").await.unwrap().title,
+            "bytes"
+        );
     });
 }
 

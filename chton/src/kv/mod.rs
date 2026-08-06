@@ -228,6 +228,15 @@ impl<const N: usize> CoordKVStore<N> {
         Ok(Some(prev))
     }
 
+    /// Clear all entries, returning the error instead of panicking.
+    /// The infallible [`CoordKV::clear`] delegates here.
+    pub fn clear_checked(&mut self) -> Result<(), KvError> {
+        self.strategy.reset(&mut *self.origin)?;
+        self.len = 0;
+        self.dirty.set(false);
+        Ok(())
+    }
+
     /// Read the value at a record offset. A short read, a length prefix
     /// beyond the record slot, or a short payload is corruption, not
     /// absence.
@@ -269,11 +278,8 @@ impl<const N: usize> CoordKV for CoordKVStore<N> {
     }
 
     fn clear(&mut self) {
-        self.strategy
-            .reset(&mut *self.origin)
+        self.clear_checked()
             .unwrap_or_else(|e| panic!("kv clear: reset failed: {e}"));
-        self.len = 0;
-        self.dirty.set(false);
     }
 
     fn insert(&mut self, key: &str, value: Vec<u8>) -> Option<Vec<u8>> {
