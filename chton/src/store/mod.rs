@@ -638,6 +638,35 @@ where
             panic!("kv entity store replace failed: {e}");
         }
     }
+
+    /// Proximity query over the materialized store: entries within
+    /// L-infinity `radius` of `center`, decoded to `V`. The center is
+    /// interpreted as a `CoordCube<D, R>`; `D * R` must equal `N`.
+    ///
+    /// Panics on IO errors after releasing the interior borrow, the
+    /// same contract as the rest of the surface.
+    pub fn proximity<const D: usize, const R: usize>(
+        &self,
+        center: &CoordPath<N>,
+        radius: usize,
+    ) -> Vec<(CoordPath<N>, V)> {
+        use tagma_core::CoordCube;
+        use tagma_geo::spatial::SpatialOps;
+        let cube = CoordCube::<N, D, R>::from_path(*center);
+        let mut results = Vec::new();
+        for path in cube.proximity(radius) {
+            let result = {
+                let kv = self.inner.borrow();
+                kv.get_path(&path)
+            };
+            match result {
+                Ok(Some(bytes)) => results.push((path, decode_value(bytes))),
+                Ok(None) => {}
+                Err(e) => panic!("kv entity store proximity get failed: {e}"),
+            }
+        }
+        results
+    }
 }
 
 /// Decode a stored value, panicking at the trait boundary. The
