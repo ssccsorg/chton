@@ -2,6 +2,14 @@
 // by proximity, and retrieve matching entries, end to end over the
 // materialized store (KvEntityStore over a file origin).
 //
+// The document scheme follows http://docs.ssccs.org/search.json: a JSON
+// array of items, each with a `title` and a `text` field. Loading the
+// remote data is forbidden in tests, so the fixture below is a local
+// representative set in the same scheme (SSCCS documentation domain).
+// The nexus semantic_scenarios.rs test exercises the same data through
+// the semantic index; this test exercises it through the materialized
+// coordinate store.
+//
 // Empirically exercises the two production-relevant contracts of the
 // store surface:
 //
@@ -19,11 +27,12 @@ use futures_executor::block_on;
 use serde::{Deserialize, Serialize};
 use tagma_core::{Coord, CoordPath};
 
+/// A search.json item: `title` and `text`, the two fields the loader
+/// extracts from docs.ssccs.org/search.json.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 struct Doc {
-    id: String,
     title: String,
-    body: String,
+    text: String,
 }
 
 /// Build the canonical N-character Hangul key whose path is exactly
@@ -39,34 +48,33 @@ fn path(coords: [u16; 6]) -> CoordPath<6> {
     CoordPath::new(coords.map(|c| Coord::new(c).unwrap()))
 }
 
-/// The search.json document set: id, title, body.
+/// Representative search.json items (SSCCS documentation domain).
 fn corpus() -> Vec<Doc> {
     vec![
         Doc {
-            id: "quantum".into(),
-            title: "Quantum error correction".into(),
-            body: "Quantum error correction reduces logical error rates below fault-tolerant thresholds."
+            title: "Segment space".into(),
+            text: "A segment is the unit of observation in the coordinate space; each field maps memory to structure."
                 .into(),
         },
         Doc {
-            id: "transformer".into(),
-            title: "Transformer BLEU".into(),
-            body: "Transformer models achieve state-of-the-art BLEU on translation benchmarks.".into(),
+            title: "Immutable store".into(),
+            text: "The immutable store indexes facts and intents with deterministic verification and provenance."
+                .into(),
         },
         Doc {
-            id: "graph-attention".into(),
-            title: "Graph attention networks".into(),
-            body: "Graph attention networks outperform GCN on ogbn-arxiv node classification.".into(),
+            title: "Graph attention".into(),
+            text: "Graph attention networks learn structure over the knowledge graph of documents and embeddings."
+                .into(),
         },
         Doc {
-            id: "federated".into(),
             title: "Federated learning".into(),
-            body: "Federated learning converges within 5% of centralized accuracy.".into(),
+            text: "Federated learning trains models across agents while keeping data local and memory bounded."
+                .into(),
         },
         Doc {
-            id: "contrastive".into(),
-            title: "Contrastive learning".into(),
-            body: "Contrastive learning needs only 5% of labeled data.".into(),
+            title: "RISC-V hardware".into(),
+            text: "The risc and fpga hardware pipeline computes observations in parallel with energy constraints."
+                .into(),
         },
     ]
 }
@@ -105,11 +113,11 @@ fn search_json_index_flush_reopen_proximity() {
             // covers positions 5, 6, 7 and excludes 50, 51.
             let near = store.proximity::<2, 3>(&center, 2);
             assert_eq!(near.len(), 3, "radius-2 box covers the near cluster");
-            assert!(near.iter().any(|(_, d)| d.id == "quantum"));
-            assert!(near.iter().any(|(_, d)| d.id == "transformer"));
-            assert!(near.iter().any(|(_, d)| d.id == "graph-attention"));
-            assert!(!near.iter().any(|(_, d)| d.id == "federated"));
-            assert!(!near.iter().any(|(_, d)| d.id == "contrastive"));
+            assert!(near.iter().any(|(_, d)| d.title == "Segment space"));
+            assert!(near.iter().any(|(_, d)| d.title == "Immutable store"));
+            assert!(near.iter().any(|(_, d)| d.title == "Graph attention"));
+            assert!(!near.iter().any(|(_, d)| d.title == "Federated learning"));
+            assert!(!near.iter().any(|(_, d)| d.title == "RISC-V hardware"));
 
             store.flush().unwrap();
         });
@@ -123,15 +131,18 @@ fn search_json_index_flush_reopen_proximity() {
             assert_eq!(store.len().await, 5, "corpus survives the reopen");
 
             // Retrieval by key after the reopen.
-            let k_quantum = hangul_key([10, 5, 0, 0, 0, 0]);
-            assert_eq!(store.get(&k_quantum).await.unwrap().id, "quantum");
+            let k_segment = hangul_key([10, 5, 0, 0, 0, 0]);
+            assert_eq!(store.get(&k_segment).await.unwrap().title, "Segment space");
 
             // Proximity after the reopen: the spatial layout is durable.
             let near = store.proximity::<2, 3>(&center, 2);
             assert_eq!(near.len(), 3, "spatial layout survives the reopen");
-            let mut ids: Vec<String> = near.iter().map(|(_, d)| d.id.clone()).collect();
-            ids.sort();
-            assert_eq!(ids, vec!["graph-attention", "quantum", "transformer"]);
+            let mut titles: Vec<String> = near.iter().map(|(_, d)| d.title.clone()).collect();
+            titles.sort();
+            assert_eq!(
+                titles,
+                vec!["Graph attention", "Immutable store", "Segment space"]
+            );
         });
     }
 
@@ -144,9 +155,8 @@ fn search_json_oversized_value_panics_without_poisoning() {
     // exceeds it, so the insert fails at the trait boundary.
     let store = KvEntityStore::<6, Doc>::new(Box::new(MemoryOrigin::new()), 128);
     let big = Doc {
-        id: "oversized".into(),
         title: "x".repeat(300),
-        body: "y".repeat(300),
+        text: "y".repeat(300),
     };
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         block_on(store.insert("oversized".into(), big))
@@ -169,13 +179,12 @@ fn search_json_oversized_value_panics_without_poisoning() {
             .insert(
                 "small".into(),
                 Doc {
-                    id: "small".into(),
                     title: "ok".into(),
-                    body: "ok".into(),
+                    text: "ok".into(),
                 },
             )
             .await;
         assert_eq!(store.len().await, 1, "store remains usable after the panic");
-        assert_eq!(store.get("small").await.unwrap().id, "small");
+        assert_eq!(store.get("small").await.unwrap().title, "ok");
     });
 }
