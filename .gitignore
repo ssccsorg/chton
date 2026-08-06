@@ -70,3 +70,4 @@ _agent/
 _pages/
 _jupyter_cache/
 *.aux
+benches/result/

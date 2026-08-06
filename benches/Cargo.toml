@@ -1,0 +1,21 @@
+[package]
+name = "chton-bench"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Unified benchmark suite for chton materialization (origin / binding / kv / store)"
+
+[dependencies]
+chton = { path = "../chton" }
+futures-executor = "0.3"
+tagma-core.workspace = true
+tagma-kv.workspace = true
+
+[dev-dependencies]
+criterion = { version = "0.5" }
+
+[[bench]]
+name = "bench"
+path = "bench.rs"
+harness = false
