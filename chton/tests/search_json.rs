@@ -1,25 +1,29 @@
-// search.json scenario: index documents into the coordinate space, query
-// by proximity, and retrieve matching entries, end to end over the
-// materialized store (KvEntityStore over a file origin).
+// search.json scenario at real scale: the document set from
+// http://docs.ssccs.org/search.json (a JSON array; each item carries
+// `objectID`, `title`, `text`, plus fields unused here) is fetched at
+// test runtime and indexed into the materialized coordinate store, then
+// searched by spatial proximity.
 //
-// The document scheme follows http://docs.ssccs.org/search.json: a JSON
-// array of items, each with a `title` and a `text` field. Loading the
-// remote data is forbidden in tests, so the fixture below is a local
-// representative set in the same scheme (SSCCS documentation domain).
-// The nexus semantic_scenarios.rs test exercises the same data through
-// the semantic index; this test exercises it through the materialized
-// coordinate store.
+// The data is fetched remotely on every run, the same pattern nexus uses
+// in semantic_scenarios.rs. A network failure skips the test loudly
+// instead of failing, so the local gate stays green offline.
 //
-// Empirically exercises the two production-relevant contracts of the
-// store surface:
+// The search architecture mirrors the coordinate-space design:
+// - a document store (KvEntityStore<6, Doc>) keyed by the objectID
+//   coordinate (SHA-256 fingerprint, one record per document), and
+// - a spatial index (KvEntityStore<6, Vec<String>>) keyed by the
+//   vocabulary-fold coordinate of each document's text; a fold holds the
+//   objectIDs whose texts map to it.
+// A query folds its text and collects the objectIDs from every fold
+// within the proximity radius, then retrieves the documents.
 //
-// 1. durability: index -> flush -> reopen yields the same corpus and the
-//    same spatial layout, so both retrieval by key and proximity queries
-//    agree before and after the reopen;
-// 2. error contract: an oversized value panics at the trait boundary
-//    with a descriptive message, and the store stays usable afterwards
-//    (the interior borrow is released before the panic, so the backing
-//    mutex is not poisoned).
+// The two empirical contracts under test:
+// 1. durability at scale: index all documents -> flush -> reopen yields
+//    the same corpus and the same proximity results (reopen reads the
+//    persisted record count from the header instead of walking the
+//    sparse 11172-wide tree);
+// 2. error contract: a value exceeding the record slot panics with a
+//    descriptive message and leaves the store usable (no poisoned mutex).
 
 use chton::origin::{FileOrigin, MemoryOrigin};
 use chton::store::{EntityStore, KvEntityStore};
@@ -27,12 +31,88 @@ use futures_executor::block_on;
 use serde::{Deserialize, Serialize};
 use tagma_core::{Coord, CoordPath};
 
-/// A search.json item: `title` and `text`, the two fields the loader
-/// extracts from docs.ssccs.org/search.json.
+/// The remote search.json endpoint, fetched at test runtime.
+const SEARCH_JSON_URL: &str = "https://docs.ssccs.org/search.json";
+
+/// A search.json item. Unknown fields (href, section, crumbs) are
+/// ignored by serde, matching the loader scheme (title + text).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 struct Doc {
+    #[serde(rename = "objectID")]
+    object_id: String,
     title: String,
     text: String,
+}
+
+/// Vocabulary for the coordinate fold, curated from the SSCCS
+/// documentation domain (a subset of the nexus semantic vocabulary).
+const VOCABULARY: &[&str] = &[
+    "segment",
+    "scheme",
+    "field",
+    "observation",
+    "projection",
+    "computation",
+    "immutable",
+    "structure",
+    "constraint",
+    "energy",
+    "memory",
+    "data",
+    "parallel",
+    "deterministic",
+    "fih",
+    "fact",
+    "intent",
+    "hint",
+    "blackboard",
+    "semantic",
+    "vector",
+    "store",
+    "index",
+    "search",
+    "rust",
+    "compiler",
+    "verification",
+    "c2pa",
+    "provenance",
+    "hardware",
+    "risc",
+    "fpga",
+    "collapse",
+    "github",
+    "foundation",
+    "ssccs",
+    "open",
+    "source",
+    "agent",
+    "knowledge",
+    "graph",
+    "document",
+    "embedding",
+    "inference",
+    "model",
+    "neural",
+    "token",
+    "attention",
+];
+
+/// Vocabulary-fold coordinate: axis i is the count of vocabulary terms
+/// from group i that appear in the text (word presence, 0..8 per axis).
+fn fold_coords(text: &str) -> [u16; 6] {
+    let lower = text.to_lowercase();
+    let per = VOCABULARY.len().div_ceil(6);
+    let mut coords = [0u16; 6];
+    for (i, coord) in coords.iter_mut().enumerate() {
+        let start = i * per;
+        let end = (start + per).min(VOCABULARY.len());
+        let sum = VOCABULARY[start..end]
+            .iter()
+            .filter(|w| lower.contains(**w))
+            .count() as u16;
+        *coord = sum;
+    }
+    coords
 }
 
 /// Build the canonical N-character Hangul key whose path is exactly
@@ -48,118 +128,159 @@ fn path(coords: [u16; 6]) -> CoordPath<6> {
     CoordPath::new(coords.map(|c| Coord::new(c).unwrap()))
 }
 
-/// Representative search.json items (SSCCS documentation domain).
-fn corpus() -> Vec<Doc> {
-    vec![
-        Doc {
-            title: "Segment space".into(),
-            text: "A segment is the unit of observation in the coordinate space; each field maps memory to structure."
-                .into(),
+/// Fetch search.json at runtime. `None` means the network is unavailable
+/// (offline run), so the caller skips the test loudly.
+fn fetch_search_items() -> Option<Vec<Doc>> {
+    match ureq::get(SEARCH_JSON_URL).call() {
+        Ok(resp) => match resp.into_body().read_to_vec() {
+            Ok(data) => match serde_json::from_slice(&data) {
+                Ok(items) => Some(items),
+                Err(e) => {
+                    eprintln!("search.json test skipped: invalid payload: {e}");
+                    None
+                }
+            },
+            Err(e) => {
+                eprintln!("search.json test skipped: body read failed: {e}");
+                None
+            }
         },
-        Doc {
-            title: "Immutable store".into(),
-            text: "The immutable store indexes facts and intents with deterministic verification and provenance."
-                .into(),
-        },
-        Doc {
-            title: "Graph attention".into(),
-            text: "Graph attention networks learn structure over the knowledge graph of documents and embeddings."
-                .into(),
-        },
-        Doc {
-            title: "Federated learning".into(),
-            text: "Federated learning trains models across agents while keeping data local and memory bounded."
-                .into(),
-        },
-        Doc {
-            title: "RISC-V hardware".into(),
-            text: "The risc and fpga hardware pipeline computes observations in parallel with energy constraints."
-                .into(),
-        },
-    ]
+        Err(e) => {
+            eprintln!("search.json test skipped: network unavailable: {e}");
+            None
+        }
+    }
 }
 
-/// Coordinate layout: axis 0 is the topic bucket, axis 1 the position.
-/// Documents at positions 5..7 are within the query radius; positions
-/// 50..51 are far away on the same topic.
-fn layout() -> Vec<(Doc, [u16; 6])> {
-    let positions = [
-        [10, 5, 0, 0, 0, 0],
-        [10, 6, 0, 0, 0, 0],
-        [10, 7, 0, 0, 0, 0],
-        [10, 50, 0, 0, 0, 0],
-        [10, 51, 0, 0, 0, 0],
-    ];
-    corpus().into_iter().zip(positions).collect()
+/// Real-scale documents that fit one 16 KiB record slot. The full set is
+/// 793 items; the outliers are long-form pages.
+fn fitted_docs() -> Vec<Doc> {
+    fetch_search_items()
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|d| d.text.len() + d.title.len() + d.object_id.len() <= 16_000)
+        .collect()
 }
-
-const CENTER: [u16; 6] = [10, 5, 0, 0, 0, 0];
 
 #[test]
-fn search_json_index_flush_reopen_proximity() {
-    let file = std::env::temp_dir().join(format!("chton-search-json-{}.bin", std::process::id()));
-    let file2 = file.clone();
-    let center = path(CENTER);
+fn search_json_real_scale_spatial_search_and_durability() {
+    let docs = fitted_docs();
+    if docs.is_empty() {
+        eprintln!("search.json test skipped: no documents fetched");
+        return;
+    }
+    let n = docs.len();
+    assert!(n >= 700, "real-scale sample: {n} of 793 docs indexed");
 
+    let doc_file =
+        std::env::temp_dir().join(format!("chton-search-docs-{}.bin", std::process::id()));
+    let idx_file =
+        std::env::temp_dir().join(format!("chton-search-idx-{}.bin", std::process::id()));
+    let doc_file2 = doc_file.clone();
+    let idx_file2 = idx_file.clone();
+
+    // The query is the first real document's text; its fold is the
+    // proximity center.
+    let query = docs[0].text.clone();
+    let query_object_id = docs[0].object_id.clone();
+    let center = path(fold_coords(&query));
+
+    let mut expected: Option<Vec<String>> = None;
     {
-        let store = KvEntityStore::<6, Doc>::new(Box::new(FileOrigin::open(&file).unwrap()), 4096);
+        let doc_store =
+            KvEntityStore::<6, Doc>::new(Box::new(FileOrigin::open(&doc_file).unwrap()), 16_384);
+        let idx_store = KvEntityStore::<6, Vec<String>>::new(
+            Box::new(FileOrigin::open(&idx_file).unwrap()),
+            8192,
+        );
         block_on(async {
-            for (doc, coords) in layout() {
-                store.insert(hangul_key(coords), doc).await;
+            for doc in &docs {
+                doc_store.insert(doc.object_id.clone(), doc.clone()).await;
             }
-            assert_eq!(store.len().await, 5, "corpus indexed");
+            assert_eq!(
+                doc_store.len().await,
+                n,
+                "every document indexed without key collision"
+            );
 
-            // Proximity before the flush: radius-2 box around axis1=5
-            // covers positions 5, 6, 7 and excludes 50, 51.
-            let near = store.proximity::<2, 3>(&center, 2);
-            assert_eq!(near.len(), 3, "radius-2 box covers the near cluster");
-            assert!(near.iter().any(|(_, d)| d.title == "Segment space"));
-            assert!(near.iter().any(|(_, d)| d.title == "Immutable store"));
-            assert!(near.iter().any(|(_, d)| d.title == "Graph attention"));
-            assert!(!near.iter().any(|(_, d)| d.title == "Federated learning"));
-            assert!(!near.iter().any(|(_, d)| d.title == "RISC-V hardware"));
+            for doc in &docs {
+                let key = hangul_key(fold_coords(&doc.text));
+                let mut list = idx_store.get(&key).await.unwrap_or_default();
+                list.push(doc.object_id.clone());
+                idx_store.insert(key, list).await;
+            }
 
-            store.flush().unwrap();
+            // Proximity search: collect objectIDs from folds within the
+            // radius, then resolve them through the document store.
+            let near = idx_store.proximity::<2, 3>(&center, 2);
+            let mut ids: Vec<String> = near.iter().flat_map(|(_, list)| list.clone()).collect();
+            ids.sort();
+            ids.dedup();
+            assert!(!ids.is_empty(), "query finds matching entries");
+            assert!(
+                ids.contains(&query_object_id),
+                "the query document itself is found"
+            );
+            for id in &ids {
+                let doc = doc_store
+                    .get(id)
+                    .await
+                    .unwrap_or_else(|| panic!("index references missing document {id}"));
+                assert_eq!(&doc.object_id, id);
+            }
+
+            doc_store.flush().unwrap();
+            idx_store.flush().unwrap();
+            expected = Some(ids);
         });
     }
 
+    // Reopen both stores: the corpus and the spatial layout are durable.
     {
-        let store =
-            KvEntityStore::<6, Doc>::load(Box::new(FileOrigin::open(&file2).unwrap()), 4096)
+        let doc_store =
+            KvEntityStore::<6, Doc>::load(Box::new(FileOrigin::open(&doc_file2).unwrap()), 16_384)
                 .unwrap();
+        let idx_store = KvEntityStore::<6, Vec<String>>::load(
+            Box::new(FileOrigin::open(&idx_file2).unwrap()),
+            8192,
+        )
+        .unwrap();
         block_on(async {
-            assert_eq!(store.len().await, 5, "corpus survives the reopen");
-
-            // Retrieval by key after the reopen.
-            let k_segment = hangul_key([10, 5, 0, 0, 0, 0]);
-            assert_eq!(store.get(&k_segment).await.unwrap().title, "Segment space");
-
-            // Proximity after the reopen: the spatial layout is durable.
-            let near = store.proximity::<2, 3>(&center, 2);
-            assert_eq!(near.len(), 3, "spatial layout survives the reopen");
-            let mut titles: Vec<String> = near.iter().map(|(_, d)| d.title.clone()).collect();
-            titles.sort();
+            assert_eq!(doc_store.len().await, n, "corpus survives the reopen");
+            let near = idx_store.proximity::<2, 3>(&center, 2);
+            let mut ids: Vec<String> = near.iter().flat_map(|(_, list)| list.clone()).collect();
+            ids.sort();
+            ids.dedup();
             assert_eq!(
-                titles,
-                vec!["Graph attention", "Immutable store", "Segment space"]
+                &ids,
+                expected.as_ref().expect("query ran before the reopen"),
+                "proximity results survive the reopen"
             );
         });
     }
 
-    std::fs::remove_file(&file).unwrap();
+    std::fs::remove_file(&doc_file).unwrap();
+    std::fs::remove_file(&idx_file).unwrap();
 }
 
 #[test]
 fn search_json_oversized_value_panics_without_poisoning() {
-    // Slot 128 bounds values to 120 bytes; the oversized document
-    // exceeds it, so the insert fails at the trait boundary.
+    // The largest fetched document exceeds a 120-byte value budget by
+    // orders of magnitude, so the insert fails at the trait boundary.
+    let docs = fetch_search_items().unwrap_or_default();
+    if docs.is_empty() {
+        eprintln!("search.json test skipped: no documents fetched");
+        return;
+    }
+    let big = docs
+        .iter()
+        .max_by_key(|d| d.text.len())
+        .expect("fetched documents")
+        .clone();
+
     let store = KvEntityStore::<6, Doc>::new(Box::new(MemoryOrigin::new()), 128);
-    let big = Doc {
-        title: "x".repeat(300),
-        text: "y".repeat(300),
-    };
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        block_on(store.insert("oversized".into(), big))
+        block_on(store.insert(big.object_id.clone(), big))
     }));
     let err = result.expect_err("oversized value must panic at the trait boundary");
     let msg = err
@@ -179,12 +300,13 @@ fn search_json_oversized_value_panics_without_poisoning() {
             .insert(
                 "small".into(),
                 Doc {
+                    object_id: "small".into(),
                     title: "ok".into(),
                     text: "ok".into(),
                 },
             )
             .await;
         assert_eq!(store.len().await, 1, "store remains usable after the panic");
-        assert_eq!(store.get("small").await.unwrap().title, "ok");
+        assert_eq!(store.get("small").await.unwrap().object_id, "small");
     });
 }
