@@ -16,9 +16,18 @@
 //! Performance invariant: tagma replaces indexing, so the coordinate is the
 //! address. Resolution is immediate (per-level array indexing, O(depth)), and
 //! enumeration is proportional to materialized records, never to the address
-//! space (the 11,172-wide fan-out). Deterministic performance degradation is
-//! therefore impossible by design: an operation that degrades with the address
-//! space is a concept-implementation error, not a tuning trade-off.
+//! space.
+//!
+//! The invariant distinguishes two layers. The indexing layer maps a
+//! coordinate to an address; the storage layer is the linked tree over the
+//! origin. An engineering-layer cost of the internal methodology that breaks
+//! through hardware constraints is inherent and acceptable: CoordSpaceN
+//! addresses per-level by array indexing, so the 11,172-wide fan-out is the
+//! price of direct addressing, and operations may carry that constant.
+//! Degradation that arises from mixing the two layers is a wrong
+//! implementation: answering an index-level question by walking the storage
+//! structure (scanning slots, or materializing the tree to count records)
+//! entangles the layers and must not happen.
 //!
 //! The binding surface is the Lego block the router stacks: a strategy is
 //! object-safe and boxable per depth N, so the materialization matrix can
