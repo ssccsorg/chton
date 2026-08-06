@@ -13,6 +13,13 @@
 //! File offset 0 is the absent sentinel and is never a valid node or record.
 //! The layout is the storage format: there is no separate serialization step.
 //!
+//! Performance invariant: tagma replaces indexing, so the coordinate is the
+//! address. Resolution is immediate (per-level array indexing, O(depth)), and
+//! enumeration is proportional to materialized records, never to the address
+//! space (the 11,172-wide fan-out). Deterministic performance degradation is
+//! therefore impossible by design: an operation that degrades with the address
+//! space is a concept-implementation error, not a tuning trade-off.
+//!
 //! The binding surface is the Lego block the router stacks: a strategy is
 //! object-safe and boxable per depth N, so the materialization matrix can
 //! hold heterogeneous space types as per-N trait objects over any origin.
