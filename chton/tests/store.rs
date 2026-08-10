@@ -79,7 +79,7 @@ fn coord_entity_store_round_trip_and_axis_filter() {
         // axis_filtered: match on the creator axis (axis 4) value produced
         // by the key mapping; the filter axis is taken from the key's own
         // mapped path, so it selects exactly that key's entry.
-        let a_coord = chton::store::str_to_coordpath::<6>("doc_a");
+        let a_coord = chton::store::str_to_coordpath::<6>("doc_a").unwrap();
         let matched = store
             .axis_filtered(&[(4, a_coord.coords()[4].index())])
             .await;
@@ -89,54 +89,31 @@ fn coord_entity_store_round_trip_and_axis_filter() {
 }
 
 #[test]
-fn str_to_coordpath_has_no_truncation_or_padding_collisions() {
+fn general_encoding_injective_within_capacity() {
     // Key classes that collided under the previous byte-wise mapping must
-    // now be distinct: prefix keys with and without a trailing NUL, a key
-    // longer than N bytes (truncation), and a byte key vs a Hangul key
-    // sharing leading coordinates (cross-format).
-    let store = CoordEntityStore::<6, Doc>::new();
+    // now be distinct under the injective general encoding: prefix keys
+    // with and without a trailing NUL, keys longer than the old N-byte
+    // limit, byte keys, and Hangul keys that are not canonical at this
+    // depth (canonical is 12 Hangul characters at depth 13).
+    let store = CoordEntityStore::<13, Doc>::new();
     block_on(async {
-        store.insert("ab".into(), Doc { title: "ab".into() }).await;
-        store
-            .insert(
-                "ab\x00".into(),
-                Doc {
-                    title: "ab-nul".into(),
-                },
-            )
-            .await;
-        store
-            .insert(
-                "abcdef".into(),
-                Doc {
-                    title: "six".into(),
-                },
-            )
-            .await;
-        store
-            .insert(
-                "abcdefghijklmnop".into(),
-                Doc {
-                    title: "long".into(),
-                },
-            )
-            .await;
-        store
-            .insert(
-                "가각간갈감갑".into(),
-                Doc {
-                    title: "hangul".into(),
-                },
-            )
-            .await;
-        store
-            .insert(
-                "\x00\x01\x02\x03\x04\x05".into(),
-                Doc {
-                    title: "bytes".into(),
-                },
-            )
-            .await;
+        for (k, title) in [
+            ("ab", "ab"),
+            ("ab\x00", "ab-nul"),
+            ("abcdef", "six"),
+            ("abcdefghijklmnop", "long"),
+            ("가각간갈감갑", "hangul"),
+            ("\x00\x01\x02\x03\x04\x05", "bytes"),
+        ] {
+            store
+                .insert(
+                    k.into(),
+                    Doc {
+                        title: title.into(),
+                    },
+                )
+                .await;
+        }
 
         assert_eq!(store.len().await, 6, "no key may collide");
         assert_eq!(store.get("ab").await.unwrap().title, "ab");
@@ -148,6 +125,75 @@ fn str_to_coordpath_has_no_truncation_or_padding_collisions() {
             store.get("\x00\x01\x02\x03\x04\x05").await.unwrap().title,
             "bytes"
         );
+    });
+}
+
+#[test]
+fn canonical_and_general_formats_are_disjoint() {
+    // At depth 7 a 6-Hangul key is canonical (direct path, marker axis
+    // 0); a 6-byte general key encodes onto the payload axes with a
+    // non-zero marker. The two formats never share a path.
+    let store = CoordEntityStore::<7, Doc>::new();
+    block_on(async {
+        store
+            .insert(
+                "가나다라마바".into(),
+                Doc {
+                    title: "canonical".into(),
+                },
+            )
+            .await;
+        store
+            .insert(
+                "\x00\x01\x02\x03\x04\x05".into(),
+                Doc {
+                    title: "general".into(),
+                },
+            )
+            .await;
+
+        assert_eq!(store.len().await, 2);
+        assert_eq!(store.get("가나다라마바").await.unwrap().title, "canonical");
+        assert_eq!(
+            store.get("\x00\x01\x02\x03\x04\x05").await.unwrap().title,
+            "general"
+        );
+
+        let canonical = chton::store::str_to_coordpath::<7>("가나다라마바").unwrap();
+        let general = chton::store::str_to_coordpath::<7>("\x00\x01\x02\x03\x04\x05").unwrap();
+        // Canonical: the six characters map directly, marker axis 0.
+        assert_eq!(canonical.coords()[6].index(), 0);
+        for (i, ch) in "가나다라마바".chars().enumerate() {
+            assert_eq!(
+                canonical.coords()[i].index(),
+                tagma_core::Coord::from_char(ch).unwrap().index()
+            );
+        }
+        // General: non-zero marker axis, so the formats are disjoint.
+        assert_ne!(general.coords()[6].index(), 0);
+        assert_ne!(canonical, general);
+    });
+}
+
+#[test]
+fn over_capacity_key_rejected() {
+    // A key longer than the payload capacity is rejected on insert and
+    // treated as absent on probe. Capacity at depth 7 is about 10 bytes.
+    let store = CoordEntityStore::<7, Doc>::new();
+    let long = "abcdefghijklmnop";
+    block_on(async {
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            block_on(store.insert(
+                long.into(),
+                Doc {
+                    title: "long".into(),
+                },
+            ))
+        }));
+        assert!(result.is_err(), "over-capacity insert must panic");
+        assert!(store.get(long).await.is_none());
+        assert!(!store.contains_key(long).await);
+        assert_eq!(store.remove(long).await, None);
     });
 }
 
