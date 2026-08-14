@@ -171,8 +171,7 @@ fn encode_general<const M: usize>(key: &str) -> Result<CoordPath<M>, KeyError> {
     // this below N_VALID, so the conversion never truncates; try_from is
     // defense in depth against future refactors.
     let len_coord = u16::try_from(len).map_err(|_| KeyError::TooLong { len, depth: M - 1 })?;
-    coords[M - 1] =
-        Coord::new(len_coord).ok_or(KeyError::TooLong { len, depth: M - 1 })?;
+    coords[M - 1] = Coord::new(len_coord).ok_or(KeyError::TooLong { len, depth: M - 1 })?;
     Ok(CoordPath::new(coords))
 }
 
