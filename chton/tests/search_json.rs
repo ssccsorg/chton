@@ -9,13 +9,11 @@
 // instead of failing, so the local gate stays green offline.
 //
 // The search architecture mirrors the coordinate-space design:
-// - a document store (KvEntityStore<94, Doc>) keyed by the objectID
-//   coordinate (injective length-prefix encoding, one record per
-//   document; the live dataset reaches 156-byte objectIDs, and depth 94
-//   holds 93 x log2(11172) ~= 1250 bits ~= 156 bytes),
+// - a document store (KvEntityStore<6, Doc>) keyed by the objectID
+//   coordinate (SHA-256 fingerprint, one record per document), and
 // - a spatial index (KvEntityStore<6, Vec<String>>) keyed by the
-//   5-Hangul canonical key of each document's vocabulary fold; a fold
-//   holds the objectIDs whose texts map to it.
+//   vocabulary-fold coordinate of each document's text; a fold holds the
+//   objectIDs whose texts map to it.
 // A query folds its text and collects the objectIDs from every fold
 // within the proximity radius, then retrieves the documents.
 //
@@ -28,7 +26,7 @@
 //    descriptive message and leaves the store usable (no poisoned mutex).
 
 use chton::origin::{FileOrigin, MemoryOrigin};
-use chton::store::{EntityStore, KvEntityStore, str_to_coordpath};
+use chton::store::{EntityStore, KvEntityStore};
 use futures_executor::block_on;
 use serde::{Deserialize, Serialize};
 use tagma_core::{Coord, CoordPath};
@@ -99,37 +97,26 @@ const VOCABULARY: &[&str] = &[
     "attention",
 ];
 
-/// Vocabulary-fold coordinate: axis i is the occurrence count of the
-/// vocabulary terms in group i (0..N per axis, term counts, not mere
-/// presence, so distinct documents separate). Five axes so a 5-Hangul
-/// key is canonical at store depth 6, which the CoordCube proximity
-/// query requires (N == D*R).
-fn fold_coords(text: &str) -> [u16; 5] {
+/// Vocabulary-fold coordinate: axis i is the count of vocabulary terms
+/// from group i that appear in the text (word presence, 0..8 per axis).
+fn fold_coords(text: &str) -> [u16; 6] {
     let lower = text.to_lowercase();
-    let groups: [&[&str]; 5] = [
-        &VOCABULARY[0..2],
-        &VOCABULARY[2..3],
-        &VOCABULARY[3..4],
-        &VOCABULARY[4..5],
-        &VOCABULARY[5..6],
-    ];
-    let mut coords = [0u16; 5];
-    for (i, group) in groups.iter().enumerate() {
-        let mut count = 0u16;
-        for word in *group {
-            let mut rest = lower.as_str();
-            while let Some(pos) = rest.find(word) {
-                count += 1;
-                rest = &rest[pos + word.len()..];
-            }
-        }
-        coords[i] = count;
+    let per = VOCABULARY.len().div_ceil(6);
+    let mut coords = [0u16; 6];
+    for (i, coord) in coords.iter_mut().enumerate() {
+        let start = i * per;
+        let end = (start + per).min(VOCABULARY.len());
+        let sum = VOCABULARY[start..end]
+            .iter()
+            .filter(|w| lower.contains(**w))
+            .count() as u16;
+        *coord = sum;
     }
     coords
 }
 
 /// Build the canonical N-character Hangul key whose path is exactly
-/// `coords` (the direct Hangul mapping of `str_to_coordpath`).
+/// `coords` (the injective Hangul mapping of `str_to_coordpath`).
 fn hangul_key<const N: usize>(coords: [u16; N]) -> String {
     coords
         .iter()
@@ -137,10 +124,8 @@ fn hangul_key<const N: usize>(coords: [u16; N]) -> String {
         .collect()
 }
 
-/// The depth-6 path of a 5-Hangul fold key (canonical: fold coords on
-/// axes 0..4, marker axis 5 = 0).
-fn fold_path(coords: [u16; 5]) -> CoordPath<6> {
-    str_to_coordpath::<6>(&hangul_key(coords)).expect("5-Hangul key is canonical at depth 6")
+fn path(coords: [u16; 6]) -> CoordPath<6> {
+    CoordPath::new(coords.map(|c| Coord::new(c).unwrap()))
 }
 
 /// Fetch search.json at runtime. `None` means the network is unavailable
@@ -198,17 +183,15 @@ fn search_json_real_scale_spatial_search_and_durability() {
     // proximity center.
     let query = docs[0].text.clone();
     let query_object_id = docs[0].object_id.clone();
-    let center = fold_path(fold_coords(&query));
+    let center = path(fold_coords(&query));
 
     let mut expected: Option<Vec<String>> = None;
     {
         let doc_store =
-            KvEntityStore::<94, Doc>::new(Box::new(FileOrigin::open(&doc_file).unwrap()), 16_384);
-        // Index slot 65_536 covers the worst case: all objectIDs (44.7 KB
-        // total in the live dataset) landing in one fold.
+            KvEntityStore::<6, Doc>::new(Box::new(FileOrigin::open(&doc_file).unwrap()), 16_384);
         let idx_store = KvEntityStore::<6, Vec<String>>::new(
             Box::new(FileOrigin::open(&idx_file).unwrap()),
-            65_536,
+            8192,
         );
         block_on(async {
             for doc in &docs {
@@ -255,11 +238,11 @@ fn search_json_real_scale_spatial_search_and_durability() {
     // Reopen both stores: the corpus and the spatial layout are durable.
     {
         let doc_store =
-            KvEntityStore::<94, Doc>::load(Box::new(FileOrigin::open(&doc_file2).unwrap()), 16_384)
+            KvEntityStore::<6, Doc>::load(Box::new(FileOrigin::open(&doc_file2).unwrap()), 16_384)
                 .unwrap();
         let idx_store = KvEntityStore::<6, Vec<String>>::load(
             Box::new(FileOrigin::open(&idx_file2).unwrap()),
-            65_536,
+            8192,
         )
         .unwrap();
         block_on(async {
@@ -284,8 +267,6 @@ fn search_json_real_scale_spatial_search_and_durability() {
 fn search_json_oversized_value_panics_without_poisoning() {
     // The largest fetched document exceeds a 120-byte value budget by
     // orders of magnitude, so the insert fails at the trait boundary.
-    // Depth 94 matches the document store so the objectID key fits and
-    // the panic is the value one, not a key-capacity one.
     let docs = fetch_search_items().unwrap_or_default();
     if docs.is_empty() {
         eprintln!("search.json test skipped: no documents fetched");
@@ -297,7 +278,7 @@ fn search_json_oversized_value_panics_without_poisoning() {
         .expect("fetched documents")
         .clone();
 
-    let store = KvEntityStore::<94, Doc>::new(Box::new(MemoryOrigin::new()), 128);
+    let store = KvEntityStore::<6, Doc>::new(Box::new(MemoryOrigin::new()), 128);
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         block_on(store.insert(big.object_id.clone(), big))
     }));

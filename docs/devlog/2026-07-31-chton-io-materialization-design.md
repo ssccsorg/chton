@@ -46,7 +46,7 @@ The tagma family map:
 | tagma-id | identity conventions | tagma (specification) |
 | tagma-geo | spatial operations | tagma (specification) |
 | tagma-kv | materialization protocol (first protocol of chton) | chton (rename-level move, for example chton-kv) |
-| tagma-signal | definition of coordspace to wave conversion | tagma (specification) |
+| tagma-wave | definition of coordspace to wave conversion | tagma (specification) |
 | wave materialization | signal origin implementation | chton (future) |
 
 ### Origin abstraction
@@ -75,7 +75,7 @@ origin layer, so any protocol can materialize onto any origin:
 | Origin | Memory, File (first context); Signal, Network, GPU (future) | protocol-agnostic, byte-level binding |
 
 The KV protocol over a signal origin is the wave instance: request and
-response become coordinate emissions, which is the tagma-signal definition
+response become coordinate emissions, which is the tagma-wave definition
 realized as a protocol binding.
 
 ### Models
@@ -125,7 +125,7 @@ paths; consumers see no change.
 - Encryption flow: chton issue 1, consumed by nexus FIH
 - Recovery guarantees: chton issue 2, resolved by memory-disk mapping
   semantics
-- Wave origin: tagma-signal definition in tagma, materialization in chton once
+- Wave origin: tagma-wave definition in tagma, materialization in chton once
   the concept is established
 
 ## Open Gate

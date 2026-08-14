@@ -13,15 +13,10 @@
 //   value codec (postcard) sits at the record boundary, the seam for a
 //   future codec layer.
 //
-// Key contract: the consumer chooses the store depth M. Keys of exactly
-// M-1 Hangul characters (the CoordId string form) map directly onto axes
-// 0..M-2 with marker axis M-1 = 0 and are injective by construction. Any
-// other key of length 1..=capacity maps onto axes 0..M-2 as big-endian
-// base-11172 digits with the byte length on axis M-1: no truncation, no
-// padding, no hashing, and structurally injective within the declared
-// capacity of (M-1) x log2(11172) ~= 13.45(M-1) bits. Keys beyond the
-// capacity are rejected with KeyError::TooLong. Do not mix the two
-// formats for the same key.
+// Key contract: canonical keys are exactly N Hangul characters (the
+// CoordId string form) and map injectively. Any other key maps through a
+// SHA-256 fingerprint, so collisions are negligible and key length is
+// unbounded. Do not mix the two formats for the same key.
 
 use std::collections::HashMap;
 use std::marker::PhantomData;
@@ -30,6 +25,7 @@ use crate::cell::Cell2;
 use crate::kv::CoordKVStore;
 use crate::origin::Origin;
 use async_trait::async_trait;
+use sha2::Digest;
 use tagma_core::{Coord, CoordPath, CoordSpaceN};
 use tagma_kv::CoordKV;
 
@@ -76,117 +72,46 @@ where
 
 // ── CoordEntityStore: CoordSpaceN-backed EntityStore ──────────────────
 
-/// Errors from mapping a string key onto a coordinate path.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum KeyError {
-    /// The key is empty; an empty string has no representable path.
-    Empty,
-    /// The key byte string exceeds the payload capacity of M-1 axes.
-    TooLong { len: usize, depth: usize },
-}
-
-impl std::fmt::Display for KeyError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            KeyError::Empty => write!(f, "empty key cannot be mapped to a coordinate path"),
-            KeyError::TooLong { len, depth } => write!(
-                f,
-                "key of {len} bytes exceeds the {depth}-axis payload capacity"
-            ),
-        }
-    }
-}
-
-impl std::error::Error for KeyError {}
-
-/// Map a string key onto a `CoordPath<M>` deterministically and
-/// injectively. The depth M is the consumer's parameter; canonical keys
-/// are exactly M-1 Hangul characters.
+/// Map a string key to a CoordPath<N> deterministically.
 ///
-/// Two formats, separated by the marker axis M-1:
-/// - Canonical (M-1 Hangul characters): each character maps directly to
-///   a Coord on axes 0..M-2, marker axis 0. Injective by construction.
-/// - General (any other string of length 1..=capacity): the marker axis
-///   holds the byte length, axes 0..M-2 hold the big-endian base-11172
-///   digits of the byte string. No truncation, no padding, no hashing.
-///   Structurally injective within the declared capacity of about
-///   13.45(M-1) bits; keys beyond it are rejected with
-///   [`KeyError::TooLong`].
-pub fn str_to_coordpath<const M: usize>(key: &str) -> Result<CoordPath<M>, KeyError> {
+/// Two formats, matching the CoordId string convention:
+/// - N-character Hangul: each character maps directly to a Coord. This
+///   path is injective; it is the canonical key form.
+/// - Any other key: SHA-256 fingerprint split across the N coords (mod
+///   11172 each). Collisions are negligible (256-bit digest over about
+///   13.4-bit coords), key length is unbounded, and there is no
+///   truncation or zero-padding, so keys that previously collided under
+///   a byte-wise mapping ("ab" vs "ab\0", keys longer than N bytes, byte
+///   keys vs Hangul keys sharing leading coords) now map to distinct
+///   paths.
+pub fn str_to_coordpath<const N: usize>(key: &str) -> CoordPath<N> {
     let chars: Vec<char> = key.chars().collect();
-    // Canonical path: exactly M-1 Hangul characters, marker axis 0.
-    if chars.len() == M - 1 && chars.iter().all(|c| Coord::from_char(*c).is_some()) {
-        let mut coords = [Coord::new(0).unwrap(); M];
+    // Canonical path: N-character Hangul key → direct Coord mapping.
+    if chars.len() == N && chars.iter().all(|c| Coord::from_char(*c).is_some()) {
+        let mut coords = [Coord::new(0).unwrap(); N];
         for (i, &ch) in chars.iter().enumerate() {
             coords[i] = Coord::from_char(ch).unwrap();
         }
-        return Ok(CoordPath::new(coords));
+        return CoordPath::new(coords);
     }
-    encode_general::<M>(key)
-}
-
-/// Encode an arbitrary byte string onto axes 0..M-2 as big-endian
-/// base-11172 digits, with the byte length on the marker axis M-1.
-fn encode_general<const M: usize>(key: &str) -> Result<CoordPath<M>, KeyError> {
-    let bytes = key.as_bytes();
-    let len = bytes.len();
-    if len == 0 {
-        return Err(KeyError::Empty);
+    // Hash fallback for arbitrary keys.
+    let digest = sha2::Sha256::digest(key.as_bytes());
+    let mut coords = [Coord::new(0).unwrap(); N];
+    for (i, coord) in coords.iter_mut().enumerate() {
+        let idx = u16::from_le_bytes([
+            digest.get(i * 2).copied().unwrap_or(0),
+            digest.get(i * 2 + 1).copied().unwrap_or(0),
+        ]) % 11172;
+        *coord = Coord::new(idx).unwrap();
     }
-    // Repeated division by 11172 extracts base-11172 digits, least
-    // significant first. At most M-1 digits fit; anything left over
-    // after M-1 divisions exceeds the capacity.
-    let mut value: Vec<u8> = bytes.to_vec();
-    let mut digits = [0u16; M];
-    for i in 0..(M - 1) {
-        let (q, r) = divmod_11172(&value);
-        digits[M - 2 - i] = r;
-        value = q;
-    }
-    if value.iter().any(|&b| b != 0) {
-        return Err(KeyError::TooLong { len, depth: M - 1 });
-    }
-    let mut coords = [Coord::new(0).unwrap(); M];
-    for (i, coord) in coords.iter_mut().enumerate().take(M - 1) {
-        *coord = Coord::new(digits[i]).unwrap();
-    }
-    coords[M - 1] = Coord::new(len as u16).unwrap();
-    Ok(CoordPath::new(coords))
-}
-
-/// Divide a big-endian byte vector by 11172; returns (quotient, remainder).
-fn divmod_11172(value: &[u8]) -> (Vec<u8>, u16) {
-    let mut rem: u32 = 0;
-    let mut quotient = Vec::with_capacity(value.len());
-    let mut started = false;
-    for &b in value {
-        let cur = rem * 256 + b as u32;
-        let q = cur / 11172;
-        rem = cur % 11172;
-        if q != 0 || started {
-            started = true;
-            quotient.push(q as u8);
-        }
-    }
-    if quotient.is_empty() {
-        quotient.push(0);
-    }
-    (quotient, rem as u16)
-}
-
-/// Map a key to its path, panicking on a contract violation. Only
-/// insert paths need this: probing (get/remove/contains) treats an
-/// unrepresentable key as absent.
-fn map_key_or_panic<const N: usize>(key: &str) -> CoordPath<N> {
-    str_to_coordpath::<N>(key).unwrap_or_else(|e| panic!("entity store key error: {e}"))
+    CoordPath::new(coords)
 }
 
 /// EntityStore backed by CoordSpaceN instead of HashMap.
 ///
-/// String keys map through [`str_to_coordpath`] with the store depth as
-/// the consumer parameter: canonical M-1 Hangul keys directly, any other
-/// key through the injective length-prefix encoding. This is the bridge
-/// between the current string-keyed storage interface and
+/// String keys map through [`str_to_coordpath`]: canonical N-Hangul keys
+/// directly, any other key through a SHA-256 fingerprint. This is the
+/// bridge between the current string-keyed storage interface and
 /// CoordPath-native storage.
 pub struct CoordEntityStore<const N: usize, V> {
     inner: Cell2<CoordSpaceN<N, V>>,
@@ -311,28 +236,22 @@ where
     // ── EntityStore behavior (single source, platform-agnostic) ────────
 
     pub(crate) async fn get_entry(&self, key: &str) -> Option<V> {
-        let Ok(path) = str_to_coordpath::<N>(key) else {
-            return None;
-        };
+        let path = str_to_coordpath::<N>(key);
         self.inner.borrow().at_path(&path).cloned()
     }
 
     pub(crate) async fn insert_entry(&self, key: String, value: V) -> Option<V> {
-        let path = map_key_or_panic::<N>(&key);
+        let path = str_to_coordpath::<N>(&key);
         self.inner.borrow_mut().place_path(&path, value)
     }
 
     pub(crate) async fn remove_entry(&self, key: &str) -> Option<V> {
-        let Ok(path) = str_to_coordpath::<N>(key) else {
-            return None;
-        };
+        let path = str_to_coordpath::<N>(key);
         self.inner.borrow_mut().vacate_path(&path)
     }
 
     pub(crate) async fn contains_entry(&self, key: &str) -> bool {
-        let Ok(path) = str_to_coordpath::<N>(key) else {
-            return false;
-        };
+        let path = str_to_coordpath::<N>(key);
         self.inner.borrow().at_path(&path).is_some()
     }
 
@@ -357,7 +276,7 @@ where
         let mut space = self.inner.borrow_mut();
         space.clear();
         for (key, value) in entries {
-            let path = map_key_or_panic::<N>(&key);
+            let path = str_to_coordpath::<N>(&key);
             space.place_path(&path, value);
         }
     }
@@ -622,9 +541,7 @@ where
     // ── EntityStore behavior (single source, platform-agnostic) ────────
 
     pub(crate) async fn get_entry(&self, key: &str) -> Option<V> {
-        let Ok(path) = str_to_coordpath::<N>(key) else {
-            return None;
-        };
+        let path = str_to_coordpath::<N>(key);
         let result = {
             let kv = self.inner.borrow();
             kv.get_path(&path)
@@ -636,7 +553,7 @@ where
     }
 
     pub(crate) async fn insert_entry(&self, key: String, value: V) -> Option<V> {
-        let path = map_key_or_panic::<N>(&key);
+        let path = str_to_coordpath::<N>(&key);
         let bytes = encode_value(&value);
         let result = {
             let mut kv = self.inner.borrow_mut();
@@ -649,9 +566,7 @@ where
     }
 
     pub(crate) async fn remove_entry(&self, key: &str) -> Option<V> {
-        let Ok(path) = str_to_coordpath::<N>(key) else {
-            return None;
-        };
+        let path = str_to_coordpath::<N>(key);
         let result = {
             let mut kv = self.inner.borrow_mut();
             kv.remove_path(&path)
@@ -663,9 +578,7 @@ where
     }
 
     pub(crate) async fn contains_entry(&self, key: &str) -> bool {
-        let Ok(path) = str_to_coordpath::<N>(key) else {
-            return false;
-        };
+        let path = str_to_coordpath::<N>(key);
         let result = {
             let kv = self.inner.borrow();
             kv.get_path(&path)
@@ -709,7 +622,7 @@ where
         // Encode before borrowing so a codec panic never holds the guard.
         let encoded: Vec<(CoordPath<N>, Vec<u8>)> = entries
             .into_iter()
-            .map(|(key, value)| (map_key_or_panic::<N>(&key), encode_value(&value)))
+            .map(|(key, value)| (str_to_coordpath::<N>(&key), encode_value(&value)))
             .collect();
         let result = {
             let mut kv = self.inner.borrow_mut();

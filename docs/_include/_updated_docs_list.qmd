@@ -4,7 +4,7 @@
 | Updated | Document |
 |----------|---------|
 | 2026-07-31 | Devlog > [Storage Layer Refactoring Plan](/devlog/2026-07-27-storage-layer-refactoring-plan.html) <sup style="background:#2c8;color:#fff;font-size:.65em;padding:0 .4em;border-radius:3px;">N</sup> |
-| 2026-07-31 | Research > [Tagma-Signal](/research/tagma-signal.html) <sup style="background:#2c8;color:#fff;font-size:.65em;padding:0 .4em;border-radius:3px;">N</sup> |
+| 2026-07-31 | Research > [Tagma-WAV](/research/tagma-wav.html) <sup style="background:#2c8;color:#fff;font-size:.65em;padding:0 .4em;border-radius:3px;">N</sup> |
 | 2026-07-24 | Devlog > [bench.rs: Code Review and Gap Analysis](/devlog/2026-07-benchrs-review.html) <sup style="background:#2c8;color:#fff;font-size:.65em;padding:0 .4em;border-radius:3px;">N</sup> |
 | 2026-07-24 | Devlog > [Commercial Storage Architecture: CoordSpaceM, mmap, and the Open-Source Strategy](/devlog/2026-07-commercial-storage-architecture.html) <sup style="background:#2c8;color:#fff;font-size:.65em;padding:0 .4em;border-radius:3px;">N</sup> |
 | 2026-07-24 | Devlog > [CoordCube: Spatial Interpretation Layer for Tagma](/devlog/2026-07-coordcube-architecture.html) <sup style="background:#2c8;color:#fff;font-size:.65em;padding:0 .4em;border-radius:3px;">N</sup> |

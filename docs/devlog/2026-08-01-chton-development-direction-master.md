@@ -92,10 +92,10 @@ The tagma family map is final:
 | tagma-id | identity conventions | tagma (specification) |
 | tagma-geo | spatial operations | tagma (specification) |
 | tagma-kv | native key-value over the coordinate space | tagma (native infrastructure) |
-| tagma-signal | definition of conversion | tagma (specification) |
+| tagma-wave | definition of conversion | tagma (specification) |
 | wave materialization | signal origin implementation | chton (future) |
 
-The tagma-signal document stays in the tagma definition layer. Signal origin
+The tagma-wave document stays in the tagma definition layer. Signal origin
 materialization moves to chton once the concept is established.
 
 ## Current State
@@ -227,7 +227,7 @@ physical medium: space type, origin, and target.
   surface of the router
 - checkpoint and restore as the SnapshotOrigin column
 - recursive and dense space strategies as later matrix rows
-- the wave origin as the SignalOrigin column once the tagma-signal concept
+- the wave origin as the SignalOrigin column once the tagma-wave concept
   is established
 - build target map (unix, wasip2, wasm32) with tooling coverage
 - io layer tests and storage integrity fixes from the code review
