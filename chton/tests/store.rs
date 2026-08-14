@@ -2,7 +2,9 @@
 // materialized implementations) over the chton behavior layer.
 
 use chton::origin::{FileOrigin, MemoryOrigin};
-use chton::store::{CoordEntityStore, EntityStore, KvEntityStore, MemoryEntityStore};
+use chton::store::{
+    CoordEntityStore, EntityStore, KeyError, KvEntityStore, MemoryEntityStore, str_to_coordpath,
+};
 use futures_executor::block_on;
 use serde::{Deserialize, Serialize};
 
@@ -173,6 +175,57 @@ fn canonical_and_general_formats_are_disjoint() {
         assert_ne!(general.coords()[6].index(), 0);
         assert_ne!(canonical, general);
     });
+}
+
+#[test]
+fn empty_key_is_rejected() {
+    // An empty string has no representable path: mapping rejects it and
+    // probing treats it as absent.
+    let err = str_to_coordpath::<7>("").unwrap_err();
+    assert!(matches!(err, KeyError::Empty));
+
+    let store = CoordEntityStore::<7, Doc>::new();
+    block_on(async {
+        assert!(store.get("").await.is_none());
+        assert!(!store.contains_key("").await);
+        assert_eq!(store.remove("").await, None);
+    });
+}
+
+#[test]
+fn hangul_key_of_non_canonical_length_is_general() {
+    // Canonical keys are exactly M-1 Hangul characters. At depth 7 a
+    // 5-Hangul key is not canonical and its 15 bytes exceed the general
+    // capacity, so it is rejected; at depth 13 it fits as a general key.
+    let err = str_to_coordpath::<7>("가나다라마").unwrap_err();
+    assert!(matches!(err, KeyError::TooLong { .. }), "got: {err:?}");
+
+    let general = str_to_coordpath::<13>("가나다라마").unwrap();
+    assert_ne!(
+        general.coords()[12].index(),
+        0,
+        "marker axis carries the byte length"
+    );
+}
+
+#[test]
+fn general_encoding_preserves_order_for_same_length_keys() {
+    // Same-length keys: lexicographic byte order maps to coordinate
+    // order because the digits are big-endian base-11172.
+    let keys = ["abc", "abd", "abe"];
+    let paths: Vec<Vec<u16>> = keys
+        .iter()
+        .map(|k| {
+            str_to_coordpath::<7>(k).unwrap().coords()[..6]
+                .iter()
+                .map(|c| c.index())
+                .collect()
+        })
+        .collect();
+    assert!(
+        paths[0] < paths[1] && paths[1] < paths[2],
+        "byte order must be preserved: {paths:?}"
+    );
 }
 
 #[test]
