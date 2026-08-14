@@ -94,6 +94,6 @@ so that space-type and build-target combinations each have a usable tool.
 
 The Chton brand covers the materialization families: Chton-Storage (disk
 and filesystem origins, the current role), Chton-Wave (signal origins, the
-tagma-wave materialization side), and Chton-Memory (time and snapshot
+tagma-signal materialization side), and Chton-Memory (time and snapshot
 materialization). Memory mapping, checkpoint and restore, and wave origins
 are later work.

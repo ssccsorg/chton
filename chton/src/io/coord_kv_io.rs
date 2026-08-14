@@ -1,16 +1,17 @@
 // ── chton io: CoordKVStore-backed FileIo backend ─────────────────────
 //
 // Bridges the flat key-space IO surface (FileIo) to the CoordKV store
-// (CoordKVStore). Each path maps to a deterministic N-byte key (SHA-256
-// prefix, so any path length fits); the value carries the path so prefix
-// listing can recover it.
+// (CoordKVStore). Each path maps to a deterministic length-prefixed key:
+// axis 0 holds the byte length, axes 1..N-1 hold the path bytes. The
+// mapping is injective for paths of 1..=N-1 bytes (no hashing); longer
+// paths are rejected. The value carries the path so prefix listing can
+// recover it.
 //
 // The record boundary here is the seam for a future codec layer: the
 // value encoding is local to this backend.
 
 use std::sync::Mutex;
 
-use sha2::Digest;
 use tagma_kv::coord_gen::CoordKey;
 
 use crate::io::{BufferIo, FileIo, IoFuture};
@@ -40,13 +41,25 @@ fn decode_value(value: &[u8]) -> Result<(String, Vec<u8>), String> {
     Ok((path, value[4 + path_len..].to_vec()))
 }
 
-/// The key for a path: the first N bytes of SHA-256. Deterministic, and
-/// collisions are negligible for N >= 16.
-fn key_of<const N: usize>(path: &str) -> CoordKey<N> {
-    let digest = sha2::Sha256::digest(path.as_bytes());
-    let mut bytes = [0u8; N];
-    bytes.copy_from_slice(&digest[..N]);
-    CoordKey::new(bytes)
+/// The key for a path: length-prefixed bytes. Axis 0 holds the byte
+/// length (1..=255), axes 1..N-1 hold the path bytes. Injective for
+/// paths of 1..=N-1 bytes; longer paths are rejected. No hashing.
+fn key_of<const N: usize>(path: &str) -> Result<CoordKey<N>, String> {
+    let bytes = path.as_bytes();
+    let len = bytes.len();
+    if len == 0 {
+        return Err("coord-kv io: empty path".into());
+    }
+    if len > N - 1 {
+        return Err(format!(
+            "coord-kv io: path of {len} bytes exceeds the {}-byte capacity",
+            N - 1
+        ));
+    }
+    let mut out = [0u8; N];
+    out[0] = len as u8;
+    out[1..=len].copy_from_slice(bytes);
+    Ok(CoordKey::new(out))
 }
 
 /// A FileIo backend over a CoordKV store.
@@ -79,7 +92,7 @@ impl<const N: usize> FileIo for CoordKVStoreIo<N> {
         let kv = &self.kv;
         Box::pin(async move {
             let guard = kv.lock().unwrap();
-            let key = key_of::<N>(path);
+            let key = key_of::<N>(path)?;
             match guard.get_path(&key.to_coord_path()) {
                 Ok(Some(value)) => Ok(Some(decode_value(&value)?.1)),
                 Ok(None) => Ok(None),
@@ -92,7 +105,7 @@ impl<const N: usize> FileIo for CoordKVStoreIo<N> {
         let kv = &self.kv;
         Box::pin(async move {
             let mut guard = kv.lock().unwrap();
-            let key = key_of::<N>(path);
+            let key = key_of::<N>(path)?;
             guard
                 .put_path(&key.to_coord_path(), &encode_value(path, data))
                 .map(|_| ())
@@ -121,7 +134,7 @@ impl<const N: usize> FileIo for CoordKVStoreIo<N> {
         let kv = &self.kv;
         Box::pin(async move {
             let mut guard = kv.lock().unwrap();
-            let key = key_of::<N>(path);
+            let key = key_of::<N>(path)?;
             guard
                 .remove_path(&key.to_coord_path())
                 .map(|_| ())
