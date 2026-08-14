@@ -17,6 +17,11 @@ use tagma_kv::coord_gen::CoordKey;
 use crate::io::{BufferIo, FileIo, IoFuture};
 use crate::kv::CoordKVStore;
 
+/// Maximum io depth. The path length prefix is one byte (1..=255), so a
+/// depth above 256 would let a path overflow it. Depths above this are
+/// rejected at compile time.
+pub const MAX_IO_DEPTH: usize = 256;
+
 /// Encode a path and content into a value: `[u32le path_len][path][content]`.
 fn encode_value(path: &str, content: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(4 + path.len() + content.len());
@@ -57,7 +62,11 @@ fn key_of<const N: usize>(path: &str) -> Result<CoordKey<N>, String> {
         ));
     }
     let mut out = [0u8; N];
-    out[0] = len as u8;
+    // The length prefix is one byte; the depth bound in `new` keeps
+    // len <= N-1 <= 255, and try_from guards against truncation.
+    out[0] = u8::try_from(len).map_err(|_| {
+        format!("coord-kv io: path of {len} bytes exceeds the 255-byte length prefix")
+    })?;
     out[1..=len].copy_from_slice(bytes);
     Ok(CoordKey::new(out))
 }
@@ -72,6 +81,12 @@ pub struct CoordKVStoreIo<const N: usize> {
 
 impl<const N: usize> CoordKVStoreIo<N> {
     pub fn new(kv: CoordKVStore<N>) -> Self {
+        const {
+            assert!(
+                N <= MAX_IO_DEPTH,
+                "depth exceeds the compile-time capacity bound"
+            );
+        }
         Self { kv: Mutex::new(kv) }
     }
 }

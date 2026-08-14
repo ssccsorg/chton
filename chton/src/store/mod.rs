@@ -76,6 +76,12 @@ where
 
 // ── CoordEntityStore: CoordSpaceN-backed EntityStore ──────────────────
 
+/// Maximum store depth. The general key encoding stores the byte length
+/// on the marker axis, a Coord (0..11171); at depth 1024 the capacity is
+/// about 1720 bytes, far beyond any practical key, so the marker never
+/// overflows. Depths above this are rejected at compile time.
+pub const MAX_STORE_DEPTH: usize = 1024;
+
 /// Errors from mapping a string key onto a coordinate path.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum KeyError {
@@ -113,6 +119,12 @@ impl std::error::Error for KeyError {}
 ///   13.45(M-1) bits; keys beyond it are rejected with
 ///   [`KeyError::TooLong`].
 pub fn str_to_coordpath<const M: usize>(key: &str) -> Result<CoordPath<M>, KeyError> {
+    const {
+        assert!(
+            M <= MAX_STORE_DEPTH,
+            "depth exceeds the compile-time capacity bound"
+        );
+    }
     let chars: Vec<char> = key.chars().collect();
     // Canonical path: exactly M-1 Hangul characters, marker axis 0.
     if chars.len() == M - 1 && chars.iter().all(|c| Coord::from_char(*c).is_some()) {
@@ -150,7 +162,12 @@ fn encode_general<const M: usize>(key: &str) -> Result<CoordPath<M>, KeyError> {
     for (i, coord) in coords.iter_mut().enumerate().take(M - 1) {
         *coord = Coord::new(digits[i]).unwrap();
     }
-    coords[M - 1] = Coord::new(len as u16).unwrap();
+    // The marker axis holds the byte length. The depth bound above keeps
+    // this below N_VALID, so the conversion never truncates; try_from is
+    // defense in depth against future refactors.
+    let len_coord = u16::try_from(len).map_err(|_| KeyError::TooLong { len, depth: M - 1 })?;
+    coords[M - 1] =
+        Coord::new(len_coord).ok_or(KeyError::TooLong { len, depth: M - 1 })?;
     Ok(CoordPath::new(coords))
 }
 
@@ -197,6 +214,12 @@ where
     V: Clone + 'static,
 {
     pub fn new() -> Self {
+        const {
+            assert!(
+                N <= MAX_STORE_DEPTH,
+                "depth exceeds the compile-time capacity bound"
+            );
+        }
         Self {
             inner: Cell2::new(CoordSpaceN::new()),
         }
@@ -593,6 +616,12 @@ where
     /// Create a fresh store over `origin`. The origin must be empty;
     /// `load` opens an existing store.
     pub fn new(origin: Box<dyn Origin>, record_slot_size: u64) -> Self {
+        const {
+            assert!(
+                N <= MAX_STORE_DEPTH,
+                "depth exceeds the compile-time capacity bound"
+            );
+        }
         Self {
             inner: Cell2::new(CoordKVStore::new(origin, record_slot_size)),
             marker: PhantomData,

@@ -180,6 +180,12 @@ impl<const N: usize> TreeStrategy<N> {
     /// an 8-byte length prefix. A smaller slot makes the format
     /// unrepresentable.
     pub fn new(record_slot_size: u64) -> Self {
+        const {
+            assert!(
+                N <= crate::store::MAX_STORE_DEPTH,
+                "depth exceeds the compile-time capacity bound"
+            );
+        }
         assert!(
             record_slot_size >= SLOT_BYTES,
             "TreeStrategy: record_slot_size {record_slot_size} is below the 8-byte record header"
