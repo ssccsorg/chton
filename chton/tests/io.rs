@@ -51,3 +51,18 @@ fn coord_kv_store_io_round_trip() {
         assert!(io.read("facts/f_a.fact").await.unwrap().is_none());
     });
 }
+
+#[test]
+fn coord_kv_store_io_rejects_over_capacity_paths() {
+    // Depth 16 holds paths of 1..=15 bytes; a longer path is rejected
+    // instead of being hashed (injective length-prefix contract).
+    let kv = CoordKVStore::<16>::new(Box::new(MemoryOrigin::new()), 512);
+    let io = CoordKVStoreIo::new(kv);
+    let long = "x".repeat(16);
+    block_on(async {
+        let err = io.write(&long, b"data").await.unwrap_err();
+        assert!(err.contains("exceeds"), "got: {err}");
+        assert!(io.read(&long).await.unwrap_err().contains("exceeds"));
+        assert!(io.delete(&long).await.unwrap_err().contains("exceeds"));
+    });
+}
