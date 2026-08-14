@@ -83,6 +83,10 @@ impl<const N: usize> CoordKVStoreIo<N> {
     pub fn new(kv: CoordKVStore<N>) -> Self {
         const {
             assert!(
+                N >= 1,
+                "depth must be at least 1: axis 0 holds the length prefix"
+            );
+            assert!(
                 N <= MAX_IO_DEPTH,
                 "depth exceeds the compile-time capacity bound"
             );

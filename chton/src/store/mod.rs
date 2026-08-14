@@ -106,8 +106,9 @@ impl std::fmt::Display for KeyError {
 impl std::error::Error for KeyError {}
 
 /// Map a string key onto a `CoordPath<M>` deterministically and
-/// injectively. The depth M is the consumer's parameter; canonical keys
-/// are exactly M-1 Hangul characters.
+/// injectively. The depth M is the consumer's parameter and must be at
+/// least 2: axis M-1 is the marker, axes 0..M-2 carry payload. Canonical
+/// keys are exactly M-1 Hangul characters.
 ///
 /// Two formats, separated by the marker axis M-1:
 /// - Canonical (M-1 Hangul characters): each character maps directly to
@@ -120,6 +121,10 @@ impl std::error::Error for KeyError {}
 ///   [`KeyError::TooLong`].
 pub fn str_to_coordpath<const M: usize>(key: &str) -> Result<CoordPath<M>, KeyError> {
     const {
+        assert!(
+            M >= 2,
+            "depth must be at least 2: the marker axis and one payload axis"
+        );
         assert!(
             M <= MAX_STORE_DEPTH,
             "depth exceeds the compile-time capacity bound"
@@ -215,6 +220,10 @@ where
 {
     pub fn new() -> Self {
         const {
+            assert!(
+                N >= 2,
+                "depth must be at least 2: the marker axis and one payload axis"
+            );
             assert!(
                 N <= MAX_STORE_DEPTH,
                 "depth exceeds the compile-time capacity bound"
@@ -617,6 +626,10 @@ where
     /// `load` opens an existing store.
     pub fn new(origin: Box<dyn Origin>, record_slot_size: u64) -> Self {
         const {
+            assert!(
+                N >= 2,
+                "depth must be at least 2: the marker axis and one payload axis"
+            );
             assert!(
                 N <= MAX_STORE_DEPTH,
                 "depth exceeds the compile-time capacity bound"
