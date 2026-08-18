@@ -9,7 +9,7 @@
 // - `MemoryEntityStore<V>`: HashMap-backed memory store.
 // - `CoordEntityStore<N, V>`: CoordSpaceN-backed memory store with
 //   spatial query methods (axis/prefix filtered iteration).
-// - `KvEntityStore<N, V>`: CoordKVStore-backed materialized store; the
+// - `MapEntityStore<N, V>`: CoordMapStore-backed materialized store; the
 //   value codec (postcard) sits at the record boundary, the seam for a
 //   future codec layer.
 //
@@ -27,11 +27,11 @@ use std::collections::HashMap;
 use std::marker::PhantomData;
 
 use crate::cell::Cell2;
-use crate::kv::CoordKVStore;
+use crate::map::CoordMapStore;
 use crate::origin::Origin;
 use async_trait::async_trait;
 use tagma_core::{Coord, CoordPath, CoordSpaceN};
-use tagma_kv::CoordKV;
+use tagma_map::CoordMap;
 
 // ── EntityStore trait ────────────────────────────────────────────────────
 
@@ -594,9 +594,9 @@ where
     }
 }
 
-// ── KvEntityStore: CoordKVStore-backed EntityStore ─────────────────────────
+// ── MapEntityStore: CoordMapStore-backed EntityStore ─────────────────────────
 
-/// EntityStore over chton's materialized CoordKV.
+/// EntityStore over chton's materialized CoordMap.
 ///
 /// The string key maps to a `CoordPath<N>` with the same deterministic
 /// mapping as [`CoordEntityStore`]; the value is postcard-encoded into the
@@ -607,17 +607,17 @@ where
 /// The trait surface is infallible, so IO and codec errors panic with a
 /// descriptive message once the interior borrow is released: a failed
 /// operation never leaves the backing mutex poisoned. This mirrors the
-/// tagma-kv CoordKV contract.
+/// tagma-map CoordMap contract.
 ///
 /// The record boundary is the same codec seam as the FileIo surface: the
-/// value bytes are opaque to the kv, so a future cipher layer would sit
+/// value bytes are opaque to the map, so a future cipher layer would sit
 /// here without changing the trait surface.
-pub struct KvEntityStore<const N: usize, V> {
-    inner: Cell2<CoordKVStore<N>>,
+pub struct MapEntityStore<const N: usize, V> {
+    inner: Cell2<CoordMapStore<N>>,
     marker: PhantomData<V>,
 }
 
-impl<const N: usize, V> KvEntityStore<N, V>
+impl<const N: usize, V> MapEntityStore<N, V>
 where
     V: Clone + serde::Serialize + serde::de::DeserializeOwned,
 {
@@ -635,7 +635,7 @@ where
             );
         }
         Self {
-            inner: Cell2::new(CoordKVStore::new(origin, record_slot_size)),
+            inner: Cell2::new(CoordMapStore::new(origin, record_slot_size)),
             marker: PhantomData,
         }
     }
@@ -643,9 +643,10 @@ where
     /// Open a store over `origin`: load the header when present, otherwise
     /// create a fresh store with `default_record_slot_size`.
     pub fn load(origin: Box<dyn Origin>, default_record_slot_size: u64) -> Result<Self, String> {
-        let kv = CoordKVStore::load(origin, default_record_slot_size).map_err(|e| e.to_string())?;
+        let map =
+            CoordMapStore::load(origin, default_record_slot_size).map_err(|e| e.to_string())?;
         Ok(Self {
-            inner: Cell2::new(kv),
+            inner: Cell2::new(map),
             marker: PhantomData,
         })
     }
@@ -667,12 +668,12 @@ where
             return None;
         };
         let result = {
-            let kv = self.inner.borrow();
-            kv.get_path(&path)
+            let map = self.inner.borrow();
+            map.get_path(&path)
         };
         match result {
             Ok(value) => value.map(decode_value),
-            Err(e) => panic!("kv entity store get failed: {e}"),
+            Err(e) => panic!("map entity store get failed: {e}"),
         }
     }
 
@@ -680,12 +681,12 @@ where
         let path = map_key_or_panic::<N>(&key);
         let bytes = encode_value(&value);
         let result = {
-            let mut kv = self.inner.borrow_mut();
-            kv.put_path(&path, &bytes)
+            let mut map = self.inner.borrow_mut();
+            map.put_path(&path, &bytes)
         };
         match result {
             Ok(prev) => prev.map(decode_value),
-            Err(e) => panic!("kv entity store insert failed: {e}"),
+            Err(e) => panic!("map entity store insert failed: {e}"),
         }
     }
 
@@ -694,12 +695,12 @@ where
             return None;
         };
         let result = {
-            let mut kv = self.inner.borrow_mut();
-            kv.remove_path(&path)
+            let mut map = self.inner.borrow_mut();
+            map.remove_path(&path)
         };
         match result {
             Ok(prev) => prev.map(decode_value),
-            Err(e) => panic!("kv entity store remove failed: {e}"),
+            Err(e) => panic!("map entity store remove failed: {e}"),
         }
     }
 
@@ -708,12 +709,12 @@ where
             return false;
         };
         let result = {
-            let kv = self.inner.borrow();
-            kv.get_path(&path)
+            let map = self.inner.borrow();
+            map.get_path(&path)
         };
         match result {
             Ok(value) => value.is_some(),
-            Err(e) => panic!("kv entity store get failed: {e}"),
+            Err(e) => panic!("map entity store get failed: {e}"),
         }
     }
 
@@ -723,12 +724,12 @@ where
 
     pub(crate) async fn all_values(&self) -> Vec<V> {
         let result = {
-            let kv = self.inner.borrow();
-            kv.iter()
+            let map = self.inner.borrow();
+            map.iter()
         };
         let entries = match result {
             Ok(entries) => entries,
-            Err(e) => panic!("kv entity store iter failed: {e}"),
+            Err(e) => panic!("map entity store iter failed: {e}"),
         };
         entries
             .into_iter()
@@ -738,11 +739,11 @@ where
 
     pub(crate) async fn clear_entries(&self) {
         let result = {
-            let mut kv = self.inner.borrow_mut();
-            kv.clear_checked()
+            let mut map = self.inner.borrow_mut();
+            map.clear_checked()
         };
         if let Err(e) = result {
-            panic!("kv entity store clear failed: {e}");
+            panic!("map entity store clear failed: {e}");
         }
     }
 
@@ -753,17 +754,17 @@ where
             .map(|(key, value)| (map_key_or_panic::<N>(&key), encode_value(&value)))
             .collect();
         let result = {
-            let mut kv = self.inner.borrow_mut();
+            let mut map = self.inner.borrow_mut();
             (|| -> Result<(), String> {
-                kv.clear_checked().map_err(|e| e.to_string())?;
+                map.clear_checked().map_err(|e| e.to_string())?;
                 for (path, bytes) in encoded {
-                    kv.put_path(&path, &bytes).map_err(|e| e.to_string())?;
+                    map.put_path(&path, &bytes).map_err(|e| e.to_string())?;
                 }
                 Ok(())
             })()
         };
         if let Err(e) = result {
-            panic!("kv entity store replace failed: {e}");
+            panic!("map entity store replace failed: {e}");
         }
     }
 
@@ -784,13 +785,13 @@ where
         let mut results = Vec::new();
         for path in cube.proximity(radius) {
             let result = {
-                let kv = self.inner.borrow();
-                kv.get_path(&path)
+                let map = self.inner.borrow();
+                map.get_path(&path)
             };
             match result {
                 Ok(Some(bytes)) => results.push((path, decode_value(bytes))),
                 Ok(None) => {}
-                Err(e) => panic!("kv entity store proximity get failed: {e}"),
+                Err(e) => panic!("map entity store proximity get failed: {e}"),
             }
         }
         results
@@ -799,12 +800,12 @@ where
 
 /// Decode a stored value, panicking at the trait boundary. The
 /// `EntityStore` surface is infallible, so IO and codec errors panic with
-/// a descriptive message, mirroring the tagma-kv CoordKV contract.
+/// a descriptive message, mirroring the tagma-map CoordMap contract.
 fn decode_value<V>(bytes: Vec<u8>) -> V
 where
     V: serde::de::DeserializeOwned,
 {
-    postcard::from_bytes(&bytes).unwrap_or_else(|e| panic!("kv entity store decode failed: {e}"))
+    postcard::from_bytes(&bytes).unwrap_or_else(|e| panic!("map entity store decode failed: {e}"))
 }
 
 /// Encode a value for storage.
@@ -812,12 +813,12 @@ fn encode_value<V>(value: &V) -> Vec<u8>
 where
     V: serde::Serialize,
 {
-    postcard::to_allocvec(value).unwrap_or_else(|e| panic!("kv entity store encode failed: {e}"))
+    postcard::to_allocvec(value).unwrap_or_else(|e| panic!("map entity store encode failed: {e}"))
 }
 
 #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
 #[async_trait]
-impl<const N: usize, V> EntityStore<V> for KvEntityStore<N, V>
+impl<const N: usize, V> EntityStore<V> for MapEntityStore<N, V>
 where
     V: Clone + Send + Sync + 'static + serde::Serialize + serde::de::DeserializeOwned,
 {
@@ -849,7 +850,7 @@ where
 
 #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
 #[async_trait(?Send)]
-impl<const N: usize, V> EntityStore<V> for KvEntityStore<N, V>
+impl<const N: usize, V> EntityStore<V> for MapEntityStore<N, V>
 where
     V: Clone + 'static + serde::Serialize + serde::de::DeserializeOwned,
 {

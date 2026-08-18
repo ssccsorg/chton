@@ -28,7 +28,7 @@ format: html
 | `bench_coordcube_bounding_box` | BBox gen 100x100 | ✅ |
 | `bench_coordcube_dim_scaling` | D=1..4 proximity scaling | ✅ |
 | `bench_coordcube_distance_metrics` | Hamming/Euclidean/Manhattan | ✅ |
-| `bench_kv_spatial_proximity` | KV end-to-end dense/sparse/empty | ✅ |
+| `bench_map_spatial_proximity` | map end-to-end dense/sparse/empty | ✅ |
 | `bench_coordcube_box_n_scaling` | N=2,4,6 bbox scaling | ✅ |
 | `bench_coordcube_overhead` | from_path, axis, raw_path cost | ✅ |
 | `bench_coordcube_path_vs_cube` | Tree+Path vs Tree+Cube direct | ✅ |
@@ -37,12 +37,12 @@ format: html
 
 ### HIGH: DynCoordSpace + CoordCube
 
-`CoordCubeKV` is implemented for `CoordKV2` and `CoordKVN<N>` but NOT for
-`DynCoordKV`. DynCoordSpace (trie) is the most practical store for variable-length
+`CoordCubemap` is implemented for `CoordMap2` and `CoordMapN<N>` but NOT for
+`DynCoordMap`. DynCoordSpace (trie) is the most practical store for variable-length
 keys. Without this implementation, DynCoordSpace users cannot use CoordCube spatial
 queries.
 
-**Required implementation**: `CoordPathLookup` + `CoordCubeKV` for `DynCoordKV`.
+**Required implementation**: `CoordPathLookup` + `CoordCubemap` for `DynCoordMap`.
 
 ### MEDIUM: Large-N tree with CoordCube
 
@@ -65,4 +65,4 @@ exact match.
 
 **DynCoordSpace + CoordCube is the most critical gap.** DynCoordSpace supports
 variable-depth keys and is the most production-relevant backend. Currently
-CoordCubeKV is fixed-depth only.
+CoordCubemap is fixed-depth only.

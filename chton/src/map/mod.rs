@@ -1,7 +1,7 @@
-//! Materialized key-value surface: the tagma-kv CoordKV contract over a
+//! Materialized key-value surface: the tagma-map CoordMap contract over a
 //! chton origin.
 //!
-//! The interface (CoordKV, CoordKVKey) is owned by tagma-kv; chton
+//! The interface (CoordMap, CoordMapKey) is owned by tagma-map; chton
 //! provides the materialization backend. Keys are coordinate paths into a
 //! `TreeStrategy<N>` tree, values are opaque bytes in fixed-size record
 //! slots as `[u64 length][payload]`. The layout is the storage format:
@@ -18,66 +18,66 @@ use std::fmt;
 use crate::binding::{BindingError, SpaceStrategy, TreeStrategy};
 use crate::origin::{Origin, OriginError};
 use tagma_core::CoordPath;
-use tagma_kv::coord_cube_kv::CoordCubeKV;
-use tagma_kv::coord_gen::CoordKey;
-use tagma_kv::{CoordKV, CoordKVKey};
+use tagma_map::coord_cube_map::CoordCubeMap;
+use tagma_map::coord_gen::CoordKey;
+use tagma_map::{CoordMap, CoordMapKey};
 
 /// Byte size of the record length prefix.
 const LENGTH_BYTES: u64 = 8;
 
 /// Errors from materialized key-value operations.
 #[derive(Debug)]
-pub enum KvError {
+pub enum MapError {
     Origin(OriginError),
     Binding(BindingError),
     ValueTooLarge { value_len: usize, max_len: usize },
     CorruptRecord { offset: u64, reason: &'static str },
 }
 
-impl fmt::Display for KvError {
+impl fmt::Display for MapError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            KvError::Origin(e) => write!(f, "kv origin error: {e}"),
-            KvError::Binding(e) => write!(f, "kv binding error: {e}"),
-            KvError::ValueTooLarge { value_len, max_len } => {
+            MapError::Origin(e) => write!(f, "map origin error: {e}"),
+            MapError::Binding(e) => write!(f, "map binding error: {e}"),
+            MapError::ValueTooLarge { value_len, max_len } => {
                 write!(
                     f,
-                    "kv value too large: {value_len} bytes, maximum {max_len}"
+                    "map value too large: {value_len} bytes, maximum {max_len}"
                 )
             }
-            KvError::CorruptRecord { offset, reason } => {
-                write!(f, "corrupt kv record at {offset}: {reason}")
+            MapError::CorruptRecord { offset, reason } => {
+                write!(f, "corrupt map record at {offset}: {reason}")
             }
         }
     }
 }
 
-impl Error for KvError {
+impl Error for MapError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            KvError::Origin(e) => Some(e),
-            KvError::Binding(e) => Some(e),
+            MapError::Origin(e) => Some(e),
+            MapError::Binding(e) => Some(e),
             _ => None,
         }
     }
 }
 
-impl From<OriginError> for KvError {
+impl From<OriginError> for MapError {
     fn from(e: OriginError) -> Self {
-        KvError::Origin(e)
+        MapError::Origin(e)
     }
 }
 
-impl From<BindingError> for KvError {
+impl From<BindingError> for MapError {
     fn from(e: BindingError) -> Self {
-        KvError::Binding(e)
+        MapError::Binding(e)
     }
 }
 
 /// Materialized key-value backend over a chton origin.
 ///
-/// Implements the tagma-kv [`CoordKV`] and [`CoordKVKey`] contract over
-/// [`TreeStrategy`], the CoordSpace persistence backend. The tagma-kv
+/// Implements the tagma-map [`CoordMap`] and [`CoordMapKey`] contract over
+/// [`TreeStrategy`], the CoordSpace persistence backend. The tagma-map
 /// contract is infallible, so IO and corruption errors panic with a
 /// descriptive message at the trait boundary; the `_path` methods and
 /// lifecycle operations return typed errors.
@@ -86,7 +86,7 @@ impl From<BindingError> for KvError {
 /// `record_slot_size - 8`; a larger value is rejected. A reopened store
 /// adopts the recorded slot size and restores the entry count by walking
 /// the tree.
-pub struct CoordKVStore<const N: usize> {
+pub struct CoordMapStore<const N: usize> {
     strategy: TreeStrategy<N>,
     origin: Box<dyn Origin>,
     len: usize,
@@ -94,16 +94,16 @@ pub struct CoordKVStore<const N: usize> {
     dirty: Cell<bool>,
 }
 
-impl<const N: usize> fmt::Debug for CoordKVStore<N> {
+impl<const N: usize> fmt::Debug for CoordMapStore<N> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("CoordKVStore")
+        f.debug_struct("CoordMapStore")
             .field("len", &self.len)
             .field("record_slot_size", &self.record_slot_size())
             .finish_non_exhaustive()
     }
 }
 
-impl<const N: usize> CoordKVStore<N> {
+impl<const N: usize> CoordMapStore<N> {
     /// Create a fresh store over `origin`. The origin must be empty;
     /// `load` opens an existing store.
     pub fn new(origin: Box<dyn Origin>, record_slot_size: u64) -> Self {
@@ -117,7 +117,7 @@ impl<const N: usize> CoordKVStore<N> {
 
     /// Open a store over `origin`: load the header when present, otherwise
     /// create a fresh store with `default_record_slot_size`.
-    pub fn load(origin: Box<dyn Origin>, default_record_slot_size: u64) -> Result<Self, KvError> {
+    pub fn load(origin: Box<dyn Origin>, default_record_slot_size: u64) -> Result<Self, MapError> {
         let strategy = TreeStrategy::<N>::load_or_new(&*origin, default_record_slot_size)?;
         // The record count is persisted in the header, so a reopen reads
         // it directly instead of walking the whole tree (O(nodes x
@@ -138,7 +138,7 @@ impl<const N: usize> CoordKVStore<N> {
     }
 
     /// Persist strategy state and flush the origin to the medium.
-    pub fn flush(&mut self) -> Result<(), KvError> {
+    pub fn flush(&mut self) -> Result<(), MapError> {
         self.strategy.set_record_count(self.len as u64);
         self.strategy.flush(&mut *self.origin)?;
         self.origin.flush()?;
@@ -157,7 +157,7 @@ impl<const N: usize> CoordKVStore<N> {
     }
 
     /// Iterate all entries in ascending coordinate order: `(key, value)`.
-    pub fn iter(&self) -> Result<Vec<(CoordKey<N>, Vec<u8>)>, KvError> {
+    pub fn iter(&self) -> Result<Vec<(CoordKey<N>, Vec<u8>)>, MapError> {
         let entries = self.strategy.iter(&*self.origin)?;
         let mut out = Vec::with_capacity(entries.len());
         for (path, offset) in entries {
@@ -168,7 +168,7 @@ impl<const N: usize> CoordKVStore<N> {
     }
 
     /// Read the value at `path`. `None` means the key is absent.
-    pub fn get_path(&self, path: &CoordPath<N>) -> Result<Option<Vec<u8>>, KvError> {
+    pub fn get_path(&self, path: &CoordPath<N>) -> Result<Option<Vec<u8>>, MapError> {
         let slot = self.strategy.locate(&*self.origin, path)?;
         if slot.record_offset == 0 {
             return Ok(None);
@@ -182,9 +182,9 @@ impl<const N: usize> CoordKVStore<N> {
         &mut self,
         path: &CoordPath<N>,
         value: &[u8],
-    ) -> Result<Option<Vec<u8>>, KvError> {
+    ) -> Result<Option<Vec<u8>>, MapError> {
         if value.len() > self.max_value_len() {
-            return Err(KvError::ValueTooLarge {
+            return Err(MapError::ValueTooLarge {
                 value_len: value.len(),
                 max_len: self.max_value_len(),
             });
@@ -216,7 +216,7 @@ impl<const N: usize> CoordKVStore<N> {
 
     /// Remove the value at `path`. Removing an absent key is a no-op.
     /// Returns the previous value.
-    pub fn remove_path(&mut self, path: &CoordPath<N>) -> Result<Option<Vec<u8>>, KvError> {
+    pub fn remove_path(&mut self, path: &CoordPath<N>) -> Result<Option<Vec<u8>>, MapError> {
         let slot = self.strategy.locate(&*self.origin, path)?;
         if slot.record_offset == 0 {
             return Ok(None);
@@ -231,8 +231,8 @@ impl<const N: usize> CoordKVStore<N> {
     }
 
     /// Clear all entries, returning the error instead of panicking.
-    /// The infallible [`CoordKV::clear`] delegates here.
-    pub fn clear_checked(&mut self) -> Result<(), KvError> {
+    /// The infallible [`CoordMap::clear`] delegates here.
+    pub fn clear_checked(&mut self) -> Result<(), MapError> {
         self.strategy.reset(&mut *self.origin)?;
         self.len = 0;
         self.dirty.set(false);
@@ -242,18 +242,18 @@ impl<const N: usize> CoordKVStore<N> {
     /// Read the value at a record offset. A short read, a length prefix
     /// beyond the record slot, or a short payload is corruption, not
     /// absence.
-    fn read_record(&self, offset: u64) -> Result<Vec<u8>, KvError> {
+    fn read_record(&self, offset: u64) -> Result<Vec<u8>, MapError> {
         let mut header = [0u8; LENGTH_BYTES as usize];
         let n = self.origin.read(offset, &mut header)?;
         if n < LENGTH_BYTES as usize {
-            return Err(KvError::CorruptRecord {
+            return Err(MapError::CorruptRecord {
                 offset,
                 reason: "short record header",
             });
         }
         let len = u64::from_le_bytes(header) as usize;
         if len > self.max_value_len() {
-            return Err(KvError::CorruptRecord {
+            return Err(MapError::CorruptRecord {
                 offset,
                 reason: "length prefix exceeds record slot",
             });
@@ -261,7 +261,7 @@ impl<const N: usize> CoordKVStore<N> {
         let mut value = vec![0u8; len];
         let m = self.origin.read(offset + LENGTH_BYTES, &mut value)?;
         if m < len {
-            return Err(KvError::CorruptRecord {
+            return Err(MapError::CorruptRecord {
                 offset,
                 reason: "short record payload",
             });
@@ -270,7 +270,7 @@ impl<const N: usize> CoordKVStore<N> {
     }
 }
 
-impl<const N: usize> CoordKV for CoordKVStore<N> {
+impl<const N: usize> CoordMap for CoordMapStore<N> {
     fn len(&self) -> usize {
         self.len
     }
@@ -281,7 +281,7 @@ impl<const N: usize> CoordKV for CoordKVStore<N> {
 
     fn clear(&mut self) {
         self.clear_checked()
-            .unwrap_or_else(|e| panic!("kv clear: reset failed: {e}"));
+            .unwrap_or_else(|e| panic!("map clear: reset failed: {e}"));
     }
 
     fn insert(&mut self, key: &str, value: Vec<u8>) -> Option<Vec<u8>> {
@@ -306,27 +306,27 @@ impl<const N: usize> CoordKV for CoordKVStore<N> {
     }
 }
 
-impl<const N: usize> CoordKVKey<N> for CoordKVStore<N> {
+impl<const N: usize> CoordMapKey<N> for CoordMapStore<N> {
     fn insert_by_coordkey(&mut self, key: &CoordKey<N>, value: Vec<u8>) -> Option<Vec<u8>> {
         let path = key.to_coord_path();
         self.put_path(&path, &value)
-            .unwrap_or_else(|e| panic!("kv insert failed: {e}"))
+            .unwrap_or_else(|e| panic!("map insert failed: {e}"))
     }
 
     fn get_by_coordkey(&self, key: &CoordKey<N>) -> Option<Vec<u8>> {
         let path = key.to_coord_path();
         self.get_path(&path)
-            .unwrap_or_else(|e| panic!("kv get failed: {e}"))
+            .unwrap_or_else(|e| panic!("map get failed: {e}"))
     }
 
     fn remove_by_coordkey(&mut self, key: &CoordKey<N>) -> Option<Vec<u8>> {
         let path = key.to_coord_path();
         self.remove_path(&path)
-            .unwrap_or_else(|e| panic!("kv remove failed: {e}"))
+            .unwrap_or_else(|e| panic!("map remove failed: {e}"))
     }
 }
 
-impl<const N: usize> CoordCubeKV<N> for CoordKVStore<N> {
+impl<const N: usize> CoordCubeMap<N> for CoordMapStore<N> {
     fn proximity<const D: usize, const R: usize>(
         &self,
         center: &CoordPath<N>,
@@ -340,7 +340,7 @@ impl<const N: usize> CoordCubeKV<N> for CoordKVStore<N> {
         for path in cube.proximity(radius) {
             if let Some(val) = self
                 .get_path(&path)
-                .unwrap_or_else(|e| panic!("kv proximity failed: {e}"))
+                .unwrap_or_else(|e| panic!("map proximity failed: {e}"))
             {
                 results.push((path, val));
             }
@@ -356,7 +356,7 @@ impl<const N: usize> CoordCubeKV<N> for CoordKVStore<N> {
         for path in iter {
             if let Some(val) = self
                 .get_path(&path)
-                .unwrap_or_else(|e| panic!("kv bounding box failed: {e}"))
+                .unwrap_or_else(|e| panic!("map bounding box failed: {e}"))
             {
                 results.push((path, val));
             }

@@ -1,7 +1,7 @@
 // IO flow surface tests: the flat key-space FileIo contract.
 
-use chton::io::{BufferIo, CoordKVStoreIo, FileIo, FsIo};
-use chton::kv::CoordKVStore;
+use chton::io::{BufferIo, CoordMapStoreIo, FileIo, FsIo};
+use chton::map::CoordMapStore;
 use chton::origin::MemoryOrigin;
 use futures_executor::block_on;
 
@@ -27,11 +27,11 @@ fn fs_io_round_trip() {
 }
 
 #[test]
-fn coord_kv_store_io_round_trip() {
-    // The CoordKV store over a memory origin, behind the flat key-space
+fn coord_map_store_io_round_trip() {
+    // The CoordMap store over a memory origin, behind the flat key-space
     // FileIo surface. The store is buffered until flushed.
-    let kv = CoordKVStore::<16>::new(Box::new(MemoryOrigin::new()), 512);
-    let io = CoordKVStoreIo::new(kv);
+    let map = CoordMapStore::<16>::new(Box::new(MemoryOrigin::new()), 512);
+    let io = CoordMapStoreIo::new(map);
 
     block_on(async {
         io.write("facts/f_a.fact", b"alpha").await.unwrap();
@@ -53,11 +53,11 @@ fn coord_kv_store_io_round_trip() {
 }
 
 #[test]
-fn coord_kv_store_io_rejects_over_capacity_paths() {
+fn coord_map_store_io_rejects_over_capacity_paths() {
     // Depth 16 holds paths of 1..=15 bytes; a longer path is rejected
     // instead of being hashed (injective length-prefix contract).
-    let kv = CoordKVStore::<16>::new(Box::new(MemoryOrigin::new()), 512);
-    let io = CoordKVStoreIo::new(kv);
+    let map = CoordMapStore::<16>::new(Box::new(MemoryOrigin::new()), 512);
+    let io = CoordMapStoreIo::new(map);
     let long = "x".repeat(16);
     block_on(async {
         let err = io.write(&long, b"data").await.unwrap_err();

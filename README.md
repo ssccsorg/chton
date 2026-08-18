@@ -5,7 +5,7 @@ Materialization IO fabric: matrix router and transformation implementations for 
 Chton lands the tagma coordinate space onto physical media. The tagma
 specification (syntagma) defines the coordinate space; chton provides the
 materialization: byte-level bindings over media, per-space-type layout
-strategies, and the backends that bind the tagma-kv CoordKV protocol
+strategies, and the backends that bind the tagma-map CoordMap protocol
 surface to origins.
 
 The name chton comes from the Greek chthōn (earth): the layer every
@@ -23,7 +23,7 @@ space is the mapped binding of that medium.
 |:---|:---|
 | origin | byte-level bindings: `Origin` trait with capability matrix (address mode, direction, persistence, binding), `MemoryOrigin`, `FileOrigin`, `MappedFileOrigin` (mmap, unix, the mapped binding) |
 | binding | per-space-type materialization strategies: `SpaceStrategy` trait, `TreeStrategy<N>` (fixed-depth tree layout, the CoordSpaceN form) |
-| kv | materialized key-value surface: `CoordKVStore<N>`, the tagma-kv `CoordKV`/`CoordKVKey` contract over the binding backend |
+| map | materialized key-value surface: `CoordMapStore<N>`, the tagma-map `CoordMap`/`CoordMapKey` contract over the binding backend |
 | io | flat key-space IO surface: `FileIo`, `BatchIo`, `FsIo` (absorbed from nexus) |
 
 ## Design
@@ -34,10 +34,10 @@ space is the mapped binding of that medium.
   is an attribute of the destination: a disk origin stores by nature, a
   signal origin propagates by nature. The same protocol materializes over
   either.
-- The key-value protocol surface is the tagma-kv CoordKV contract, owned by
+- The key-value protocol surface is the tagma-map CoordMap contract, owned by
   tagma; chton provides the materialization backends that bind the surface
   to origins.
-- The record boundary in the kv layer is the seam for a codec layer:
+- The record boundary in the map layer is the seam for a codec layer:
   payload encryption before write and decryption after read change no
   trait surface and no slot layout.
 - Per-space-type strategies keep the materialization independent of the
@@ -47,8 +47,8 @@ space is the mapped binding of that medium.
 
 ## Status
 
-Early implementation. The origin, binding (tree strategy), and kv
-(materialized CoordKV) layers work over memory, file, and mapped-file
+Early implementation. The origin, binding (tree strategy), and map
+(materialized CoordMap) layers work over memory, file, and mapped-file
 origins, and the io layer absorbs the flat key-space surface from nexus.
 The unit test suite runs through `./run.sh`. Checkpoint and restore,
 wave origins, and the record codec layer are later work.

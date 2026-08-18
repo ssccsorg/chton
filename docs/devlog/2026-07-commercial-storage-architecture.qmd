@@ -90,12 +90,12 @@ CoordCube::bounding_box(10K):
 
 This is sufficient for the current product. Storage-layer optimizations (dense prefix caches, batch tree traversal) are future work, not CoordCube blockers.
 
-## DynCoordKV Gap Closed
+## DynCoordMap Gap Closed
 
-The remaining implementation gap was DynCoordKV + CoordCube integration:
+The remaining implementation gap was DynCoordMap + CoordCube integration:
 
-- `get_by_coord_path<N>()` added to DynCoordKV
-- `CoordCubeKV<N> for DynCoordKV` implemented
+- `get_by_coord_path<N>()` added to DynCoordMap
+- `CoordCubemap<N> for DynCoordMap` implemented
 - 3 spatial tests added (proximity, bbox, empty store)
 - All 37 unit + 39 integration + 8 doc tests pass
 
@@ -105,7 +105,7 @@ Three new benchmark groups added to bench.rs following the code review:
 
 | Group | What it measures | Key result |
 |-------|-----------------|------------|
-| `Spatial/cubelargen` | CoordCube on N=12, N=19 trees | Works at any N; KV proximity at 187 ns (N=19) |
+| `Spatial/cubelargen` | CoordCube on N=12, N=19 trees | Works at any N; map proximity at 187 ns (N=19) |
 | `Spatial/hierarchical` | 2-phase Cube→Path query | 413 ns vs direct 312 ns (32% slower) |
 | `Spatial/cubehamming` | proximity vs proximity_hamming | r=1: hamming faster (99 vs 147 ns) |
 

@@ -50,8 +50,8 @@ path. The matrix is the source of truth for what materialized where.
 
 Consequences for design:
 
-- tagma-kv stays in tagma as the native KV over the coordinate space;
-  chton provides the same CoordKV surface materialized onto file origins.
+- tagma-map stays in tagma as the native map over the coordinate space;
+  chton provides the same CoordMap surface materialized onto file origins.
 - nexus consumes chton as one surface, not as parallel IO stacks.
 - checkpoint and restore become the SnapshotOrigin column, not a new layer.
 - the wave origin becomes the SignalOrigin column, not a new stack.
@@ -81,7 +81,7 @@ specification versus implementation:
   projected into the address space is the mapped binding of that medium.
 - SpaceStrategy is the CoordSpace persistence backend; key-value is an
   interface consumer bound to it. The backend is independent of any
-  protocol, so the same materialized space serves KV, log, or blob
+  protocol, so the same materialized space serves map, log, or blob
   surfaces.
 
 The tagma family map is final:
@@ -91,7 +91,7 @@ The tagma family map is final:
 | tagma-core | coordinates, paths, space structures | tagma (specification) |
 | tagma-id | identity conventions | tagma (specification) |
 | tagma-geo | spatial operations | tagma (specification) |
-| tagma-kv | native key-value over the coordinate space | tagma (native infrastructure) |
+| tagma-map | native key-value over the coordinate space | tagma (native infrastructure) |
 | tagma-signal | definition of conversion | tagma (specification) |
 | wave materialization | signal origin implementation | chton (future) |
 
@@ -100,13 +100,13 @@ materialization moves to chton once the concept is established.
 
 ## Current State
 
-The chton workspace implements the origin, binding, kv, and io layers
+The chton workspace implements the origin, binding, map, and io layers
 over file and mapped-file origins, with memory as a projection surface.
-Thirty-three tests cover origin, binding, and the materialized kv
+Thirty-three tests cover origin, binding, and the materialized map
 surface. The
-protocol layer and RegionKv were removed: chton owns no protocol type,
-and the key-value surface is the tagma-kv CoordKV contract, owned by
-tagma. The kv layer implements that contract as `MaterialKv<N>` over
+protocol layer and Regionmap were removed: chton owns no protocol type,
+and the key-value surface is the tagma-map CoordMap contract, owned by
+tagma. The map layer implements that contract as `Materialmap<N>` over
 TreeStrategy, the CoordSpace persistence backend over file and mapped
 origins; TreeStrategy records the tree depth, node size, and record slot
 size in the header, adopts the recorded slot size on load, and validates
@@ -130,7 +130,7 @@ open gate; both violations are resolved.
 The SpaceStrategy trait once carried key-value record management into a
 layer documented as protocol-agnostic, and the protocol layer lived in
 chton. The resolution removes the protocol layer entirely: chton owns no
-protocol type, and the CoordKV contract stays with tagma-kv. SpaceStrategy
+protocol type, and the CoordMap contract stays with tagma-map. SpaceStrategy
 remains the CoordSpace persistence backend, and record management is
 backend scope, so a log or blob protocol consumes the same backend surface
 without inheriting protocol code.
@@ -165,7 +165,7 @@ the format-side items:
 - Header fields are validated on load: depth, node size, record slot size,
   bump, and free list head must be consistent. (resolved)
 - The key-value record length prefix no longer exists: the protocol layer
-  and RegionKv were removed. (resolved by removal)
+  and Regionmap were removed. (resolved by removal)
 - The io module has no tests at all, and no build target coverage exists
   for wasm32-wasip2 or wasm32-unknown-unknown in the tooling. (open)
 
@@ -181,10 +181,10 @@ second, and the source repository re-exports for compatibility. The order:
 1. finish the nexus io split: delete dead implementation files, pin the
    chton and tagma-core git dependencies across all lockfiles, resolve the
    unused chton dependency in fih-model
-2. the tagma-kv CoordKV and CoordKVKey interfaces stay in tagma; chton
-   implements the same CoordKV surface as materialization backends over
-   file origins (`MaterialKv<N>` over TreeStrategy, with the CoordCubeKV
-   proximity query primitive). RegionKv and the chton protocol layer
+2. the tagma-map CoordMap and CoordMapKey interfaces stay in tagma; chton
+   implements the same CoordMap surface as materialization backends over
+   file origins (`Materialmap<N>` over TreeStrategy, with the CoordCubemap
+   proximity query primitive). Regionmap and the chton protocol layer
    were removed, so the shared contract is the interface, not a type.
    Remaining: CoordGen key conversion parity across the native and
    materialized stores, and the search.json document pipeline over the
@@ -201,7 +201,7 @@ second, and the source repository re-exports for compatibility. The order:
 
 tagma stays unchanged until step 2. The first integration is on the nexus
 side because materialized implementations live there; tagma changes begin
-when chton implements the CoordKV surface and the two sides share one
+when chton implements the CoordMap surface and the two sides share one
 contract.
 
 ## Naming

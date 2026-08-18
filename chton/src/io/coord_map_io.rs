@@ -1,7 +1,7 @@
-// ── chton io: CoordKVStore-backed FileIo backend ─────────────────────
+// ── chton io: CoordMapStore-backed FileIo backend ─────────────────────
 //
-// Bridges the flat key-space IO surface (FileIo) to the CoordKV store
-// (CoordKVStore). Each path maps to a deterministic length-prefixed key:
+// Bridges the flat key-space IO surface (FileIo) to the CoordMap store
+// (CoordMapStore). Each path maps to a deterministic length-prefixed key:
 // axis 0 holds the byte length, axes 1..N-1 hold the path bytes. The
 // mapping is injective for paths of 1..=N-1 bytes (no hashing); longer
 // paths are rejected. The value carries the path so prefix listing can
@@ -12,10 +12,10 @@
 
 use std::sync::Mutex;
 
-use tagma_kv::coord_gen::CoordKey;
+use tagma_map::coord_gen::CoordKey;
 
 use crate::io::{BufferIo, FileIo, IoFuture};
-use crate::kv::CoordKVStore;
+use crate::map::CoordMapStore;
 
 /// Maximum io depth. The path length prefix is one byte (1..=255), so a
 /// depth above 256 would let a path overflow it. Depths above this are
@@ -34,14 +34,14 @@ fn encode_value(path: &str, content: &[u8]) -> Vec<u8> {
 /// Decode a value back into `(path, content)`.
 fn decode_value(value: &[u8]) -> Result<(String, Vec<u8>), String> {
     if value.len() < 4 {
-        return Err("coord-kv value too short".into());
+        return Err("coord-map value too short".into());
     }
     let path_len = u32::from_le_bytes(value[..4].try_into().unwrap()) as usize;
     let path_bytes = value
         .get(4..4 + path_len)
-        .ok_or_else(|| "coord-kv value path truncated".to_string())?;
+        .ok_or_else(|| "coord-map value path truncated".to_string())?;
     let path = std::str::from_utf8(path_bytes)
-        .map_err(|e| format!("coord-kv value path not utf-8: {e}"))?
+        .map_err(|e| format!("coord-map value path not utf-8: {e}"))?
         .to_string();
     Ok((path, value[4 + path_len..].to_vec()))
 }
@@ -53,11 +53,11 @@ fn key_of<const N: usize>(path: &str) -> Result<CoordKey<N>, String> {
     let bytes = path.as_bytes();
     let len = bytes.len();
     if len == 0 {
-        return Err("coord-kv io: empty path".into());
+        return Err("coord-map io: empty path".into());
     }
     if len > N - 1 {
         return Err(format!(
-            "coord-kv io: path of {len} bytes exceeds the {}-byte capacity",
+            "coord-map io: path of {len} bytes exceeds the {}-byte capacity",
             N - 1
         ));
     }
@@ -65,22 +65,22 @@ fn key_of<const N: usize>(path: &str) -> Result<CoordKey<N>, String> {
     // The length prefix is one byte; the depth bound in `new` keeps
     // len <= N-1 <= 255, and try_from guards against truncation.
     out[0] = u8::try_from(len).map_err(|_| {
-        format!("coord-kv io: path of {len} bytes exceeds the 255-byte length prefix")
+        format!("coord-map io: path of {len} bytes exceeds the 255-byte length prefix")
     })?;
     out[1..=len].copy_from_slice(bytes);
     Ok(CoordKey::new(out))
 }
 
-/// A FileIo backend over a CoordKV store.
+/// A FileIo backend over a CoordMap store.
 ///
 /// The store is interior-mutable because `FileIo` methods take `&self`
-/// while `CoordKVStore` writes need `&mut self`.
-pub struct CoordKVStoreIo<const N: usize> {
-    kv: Mutex<CoordKVStore<N>>,
+/// while `CoordMapStore` writes need `&mut self`.
+pub struct CoordMapStoreIo<const N: usize> {
+    map: Mutex<CoordMapStore<N>>,
 }
 
-impl<const N: usize> CoordKVStoreIo<N> {
-    pub fn new(kv: CoordKVStore<N>) -> Self {
+impl<const N: usize> CoordMapStoreIo<N> {
+    pub fn new(map: CoordMapStore<N>) -> Self {
         const {
             assert!(
                 N >= 1,
@@ -91,26 +91,28 @@ impl<const N: usize> CoordKVStoreIo<N> {
                 "depth exceeds the compile-time capacity bound"
             );
         }
-        Self { kv: Mutex::new(kv) }
+        Self {
+            map: Mutex::new(map),
+        }
     }
 }
 
-impl<const N: usize> BufferIo for CoordKVStoreIo<N> {
+impl<const N: usize> BufferIo for CoordMapStoreIo<N> {
     fn is_buffered(&self) -> bool {
-        self.kv.lock().unwrap().is_buffered()
+        self.map.lock().unwrap().is_buffered()
     }
 
     fn flush<'a>(&'a self) -> IoFuture<'a, ()> {
-        let kv = &self.kv;
-        Box::pin(async move { kv.lock().unwrap().flush().map_err(|e| e.to_string()) })
+        let map = &self.map;
+        Box::pin(async move { map.lock().unwrap().flush().map_err(|e| e.to_string()) })
     }
 }
 
-impl<const N: usize> FileIo for CoordKVStoreIo<N> {
+impl<const N: usize> FileIo for CoordMapStoreIo<N> {
     fn read<'a>(&'a self, path: &'a str) -> IoFuture<'a, Option<Vec<u8>>> {
-        let kv = &self.kv;
+        let map = &self.map;
         Box::pin(async move {
-            let guard = kv.lock().unwrap();
+            let guard = map.lock().unwrap();
             let key = key_of::<N>(path)?;
             match guard.get_path(&key.to_coord_path()) {
                 Ok(Some(value)) => Ok(Some(decode_value(&value)?.1)),
@@ -121,9 +123,9 @@ impl<const N: usize> FileIo for CoordKVStoreIo<N> {
     }
 
     fn write<'a>(&'a self, path: &'a str, data: &'a [u8]) -> IoFuture<'a, ()> {
-        let kv = &self.kv;
+        let map = &self.map;
         Box::pin(async move {
-            let mut guard = kv.lock().unwrap();
+            let mut guard = map.lock().unwrap();
             let key = key_of::<N>(path)?;
             guard
                 .put_path(&key.to_coord_path(), &encode_value(path, data))
@@ -133,9 +135,9 @@ impl<const N: usize> FileIo for CoordKVStoreIo<N> {
     }
 
     fn list<'a>(&'a self, prefix: &'a str) -> IoFuture<'a, Vec<String>> {
-        let kv = &self.kv;
+        let map = &self.map;
         Box::pin(async move {
-            let guard = kv.lock().unwrap();
+            let guard = map.lock().unwrap();
             let entries = guard.iter().map_err(|e| e.to_string())?;
             let mut out = Vec::new();
             for (_, value) in entries {
@@ -150,9 +152,9 @@ impl<const N: usize> FileIo for CoordKVStoreIo<N> {
     }
 
     fn delete<'a>(&'a self, path: &'a str) -> IoFuture<'a, ()> {
-        let kv = &self.kv;
+        let map = &self.map;
         Box::pin(async move {
-            let mut guard = kv.lock().unwrap();
+            let mut guard = map.lock().unwrap();
             let key = key_of::<N>(path)?;
             guard
                 .remove_path(&key.to_coord_path())

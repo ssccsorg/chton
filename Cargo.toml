@@ -10,4 +10,4 @@ license = "Apache-2.0"
 [workspace.dependencies]
 tagma-core = { git = "https://github.com/ssccsorg/syntagma", branch = "main" }
 tagma-geo = { git = "https://github.com/ssccsorg/syntagma", branch = "main" }
-tagma-kv = { git = "https://github.com/ssccsorg/syntagma", branch = "main" }
+tagma-map = { git = "https://github.com/ssccsorg/syntagma", branch = "main" }

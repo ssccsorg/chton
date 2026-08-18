@@ -9,11 +9,11 @@
 // instead of failing, so the local gate stays green offline.
 //
 // The search architecture mirrors the coordinate-space design:
-// - a document store (KvEntityStore<94, Doc>) keyed by the objectID
+// - a document store (MapEntityStore<94, Doc>) keyed by the objectID
 //   coordinate (injective length-prefix encoding, one record per
 //   document; the live dataset reaches 156-byte objectIDs, and depth 94
 //   holds 93 x log2(11172) ~= 1250 bits ~= 156 bytes),
-// - a spatial index (KvEntityStore<6, Vec<String>>) keyed by the
+// - a spatial index (MapEntityStore<6, Vec<String>>) keyed by the
 //   5-Hangul canonical key of each document's vocabulary fold; a fold
 //   holds the objectIDs whose texts map to it.
 // A query folds its text and collects the objectIDs from every fold
@@ -28,7 +28,7 @@
 //    descriptive message and leaves the store usable (no poisoned mutex).
 
 use chton::origin::{FileOrigin, MemoryOrigin};
-use chton::store::{EntityStore, KvEntityStore, str_to_coordpath};
+use chton::store::{EntityStore, MapEntityStore, str_to_coordpath};
 use futures_executor::block_on;
 use serde::{Deserialize, Serialize};
 use tagma_core::{Coord, CoordPath};
@@ -203,10 +203,10 @@ fn search_json_real_scale_spatial_search_and_durability() {
     let mut expected: Option<Vec<String>> = None;
     {
         let doc_store =
-            KvEntityStore::<94, Doc>::new(Box::new(FileOrigin::open(&doc_file).unwrap()), 16_384);
+            MapEntityStore::<94, Doc>::new(Box::new(FileOrigin::open(&doc_file).unwrap()), 16_384);
         // Index slot 65_536 covers the worst case: all objectIDs (44.7 KB
         // total in the live dataset) landing in one fold.
-        let idx_store = KvEntityStore::<6, Vec<String>>::new(
+        let idx_store = MapEntityStore::<6, Vec<String>>::new(
             Box::new(FileOrigin::open(&idx_file).unwrap()),
             65_536,
         );
@@ -254,10 +254,12 @@ fn search_json_real_scale_spatial_search_and_durability() {
 
     // Reopen both stores: the corpus and the spatial layout are durable.
     {
-        let doc_store =
-            KvEntityStore::<94, Doc>::load(Box::new(FileOrigin::open(&doc_file2).unwrap()), 16_384)
-                .unwrap();
-        let idx_store = KvEntityStore::<6, Vec<String>>::load(
+        let doc_store = MapEntityStore::<94, Doc>::load(
+            Box::new(FileOrigin::open(&doc_file2).unwrap()),
+            16_384,
+        )
+        .unwrap();
+        let idx_store = MapEntityStore::<6, Vec<String>>::load(
             Box::new(FileOrigin::open(&idx_file2).unwrap()),
             65_536,
         )
@@ -297,7 +299,7 @@ fn search_json_oversized_value_panics_without_poisoning() {
         .expect("fetched documents")
         .clone();
 
-    let store = KvEntityStore::<94, Doc>::new(Box::new(MemoryOrigin::new()), 128);
+    let store = MapEntityStore::<94, Doc>::new(Box::new(MemoryOrigin::new()), 128);
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         block_on(store.insert(big.object_id.clone(), big))
     }));
@@ -308,7 +310,7 @@ fn search_json_oversized_value_panics_without_poisoning() {
         .or_else(|| err.downcast_ref::<&str>().copied())
         .unwrap_or("");
     assert!(
-        msg.contains("kv entity store insert failed"),
+        msg.contains("map entity store insert failed"),
         "panic must carry a descriptive message, got: {msg}"
     );
 
