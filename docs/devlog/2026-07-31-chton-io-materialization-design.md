@@ -31,7 +31,7 @@ The coordinate space is structure. Key-value is one materialization
 protocol, and its destination need not be disk: the same protocol runs over
 memory, file, or signal origins. Storage is what a disk origin does,
 transmission is what a signal origin does, and key-value is the protocol that
-materializes over either. The current tagma-kv is a native implementation
+materializes over either. The current tagma-map is a native implementation
 with a key-value interface, not a bridge to a legacy store: the key is a
 CoordPath and the index is the coordinate space itself. The key-value surface
 is the on-ramp; the coordinate structure is the engine. Interfaces belong to
@@ -45,7 +45,7 @@ The tagma family map:
 | tagma-core | coordinates, paths, space structures | tagma (specification) |
 | tagma-id | identity conventions | tagma (specification) |
 | tagma-geo | spatial operations | tagma (specification) |
-| tagma-kv | materialization protocol (first protocol of chton) | chton (rename-level move, for example chton-kv) |
+| tagma-map | materialization protocol (first protocol of chton) | chton (rename-level move, for example chton-map) |
 | tagma-signal | definition of coordspace to wave conversion | tagma (specification) |
 | wave materialization | signal origin implementation | chton (future) |
 
@@ -70,11 +70,11 @@ origin layer, so any protocol can materialize onto any origin:
 
 | Layer | Content | Constraint |
 |:---|:---|:---|
-| Protocol | materialization protocols (KV first; log, blob, stream as later candidates) | origin-agnostic, defined over the origin surface |
+| Protocol | materialization protocols (map first; log, blob, stream as later candidates) | origin-agnostic, defined over the origin surface |
 | Binding | protocol to origin adaptation | capability matrix (address mode, direction, persistence, binding) |
 | Origin | Memory, File (first context); Signal, Network, GPU (future) | protocol-agnostic, byte-level binding |
 
-The KV protocol over a signal origin is the wave instance: request and
+The map protocol over a signal origin is the wave instance: request and
 response become coordinate emissions, which is the tagma-signal definition
 realized as a protocol binding.
 
@@ -98,8 +98,8 @@ implementation layout is settled, guided by the layer design, because traits
 are the contracts that callers depend on. This ordering keeps code breakage
 minimal at every step.
 
-Concretely: tagma-kv implementations move to chton first (rename-level, for
-example chton-kv) with syntagma re-exporting for compatibility; the CoordKV
+Concretely: tagma-map implementations move to chton first (rename-level, for
+example chton-map) with syntagma re-exporting for compatibility; the CoordMap
 interface then follows per design decision B (storage concepts complete
 within chton), while space interfaces remain in tagma. nexus depends on tagma
 for the space interface and on chton for the key-value layer. Moved
@@ -114,7 +114,7 @@ paths; consumers see no change.
    key-value layout.
 2. tagma refinement: specification only, no executors. The key-value
    implementations move out.
-3. chton core: origin layer (Memory, File) with the protocol layer (KV as
+3. chton core: origin layer (Memory, File) with the protocol layer (map as
    the first protocol), mmap, checkpoint, and restore.
 4. nexus integration: dependency switch, then internal adapter swap. The
    trait surface stays unchanged.

@@ -80,7 +80,7 @@ pub trait FileIo {
 ///
 /// This is a Lego trait, separate from [`FileIo`], so the flow surface
 /// stays pure: write-through and in-memory backends implement only
-/// [`FileIo`], while buffering vessels (kv header, mapped pages) implement
+/// [`FileIo`], while buffering vessels (map header, mapped pages) implement
 /// both. Consumers that need durability bind to `FileIo + BufferIo`.
 pub trait BufferIo {
     /// Whether the vessel holds buffered state that is not yet durable.

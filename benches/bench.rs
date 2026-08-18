@@ -1,19 +1,19 @@
 // ═══════════════════════════════════════════════════════════════════════════
-// chton-bench — materialization benchmark suite (origin / binding / kv / store)
+// chton-bench — materialization benchmark suite (origin / binding / map / store)
 //
 // Single-file Criterion benchmark, the stack standard (syntagma / nexus / ev).
 // Run:
 //   cargo bench -p chton-bench          # everything
-//   cargo bench -p chton-bench -- kv    # kv group only
+//   cargo bench -p chton-bench -- map    # map group only
 //   ./run.sh                            # timestamped capture + JSON export
 //
 // Coverage:
 //   origin/   — byte-level bindings: MemoryOrigin vs FileOrigin vs MappedFileOrigin
 //   binding/  — TreeStrategy: address resolution (locate), creation, enumeration
-//   kv/       — CoordKVStore: put / get / remove / iter / flush
-//   kv/reopen/— reopen via the persisted header count (scale-invariant)
+//   map/       — CoordMapStore: put / get / remove / iter / flush
+//   map/reopen/— reopen via the persisted header count (scale-invariant)
 //   spatial/  — CoordCube proximity (L-infinity box) at radius scaling
-//   store/    — EntityStore family: Memory vs Coord vs Kv
+//   store/    — EntityStore family: Memory vs Coord vs map
 //
 // Paradigm (the master invariant this suite is written against):
 //   tagma replaces indexing: the coordinate is the address. Resolution is
@@ -41,34 +41,34 @@
 //   binding/locate_or_create_1k 52.8 ms      (node alloc dominates)
 //   binding/iter_1k             38.5 ms      (O(nodes + records), bitmap)
 //   binding/count_1k            45.2 ms
-//   kv/put_1k                   56.0 ms      (~56 µs/insert, node alloc)
-//   kv/get_1k                   133 µs       (~133 ns/lookup)
-//   kv/remove_1k                56.3 ms
-//   kv/iter_1k                  39.0 ms
-//   kv/flush_1k                 10.4 ms
-//   kv/reopen/n1000             18.0 µs      (O(1), persisted header count)
-//   kv/reopen/n10000            17.4 µs      (scale-invariant: 1k == 10k)
+//   map/put_1k                   56.0 ms      (~56 µs/insert, node alloc)
+//   map/get_1k                   133 µs       (~133 ns/lookup)
+//   map/remove_1k                56.3 ms
+//   map/iter_1k                  39.0 ms
+//   map/flush_1k                 10.4 ms
+//   map/reopen/n1000             18.0 µs      (O(1), persisted header count)
+//   map/reopen/n10000            17.4 µs      (scale-invariant: 1k == 10k)
 //   spatial/proximity_r1_1k     1.91 µs      (box 3^6 = 729 paths)
 //   spatial/proximity_r2_1k     30.9 µs      (box 5^6 = 15,625 paths)
 //   spatial/proximity_r3_1k     115 µs       (box 7^6 = 117,649 paths)
 //   store/memory_insert_1k      145 µs
 //   store/coord_insert_1k       91.1 ms      (CoordSpaceN node alloc)
-//   store/kv_insert_1k          59.1 ms
-//   store/kv_values_1k          38.1 ms
-//   store/kv_proximity_r2_1k    27.1 µs
+//   store/map_insert_1k          59.1 ms
+//   store/map_values_1k          38.1 ms
+//   store/map_proximity_r2_1k    27.1 µs
 //
 // Reading the ledger:
 //   Resolution (locate/get) is O(depth) and independent of record count;
 //   the per-lookup cost is a few tens of nanoseconds at depth 6. Reopen is
 //   O(1): n1000 and n10000 land at the same 17-18 µs. Enumeration (iter /
 //   count / values) is proportional to materialized nodes and records. The
-//   heavy insert costs (put, locate_or_create, coord/kv insert) are node
+//   heavy insert costs (put, locate_or_create, coord/map insert) are node
 //   allocation: each new node zeroes its 89 KB span, the engineering cost
 //   of the 11,172-wide direct-addressing fan-out (allowed by the
 //   invariant). Proximity cost is the box volume (2r+1)^N per query.
 //
 // Correctness guards:
-//   kv/reopen/* asserts len == n after every reopen; a regression in the
+//   map/reopen/* asserts len == n after every reopen; a regression in the
 //   header-count path fails the benchmark.
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -76,12 +76,12 @@ use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use futures_executor::block_on;
 
 use chton::binding::{SpaceStrategy, TreeStrategy};
-use chton::kv::CoordKVStore;
+use chton::map::CoordMapStore;
 use chton::origin::{FileOrigin, MappedFileOrigin, MemoryOrigin, Origin};
-use chton::store::{CoordEntityStore, EntityStore, KvEntityStore, MemoryEntityStore};
+use chton::store::{CoordEntityStore, EntityStore, MapEntityStore, MemoryEntityStore};
 use tagma_core::{Coord, CoordPath};
-use tagma_kv::CoordKV;
-use tagma_kv::coord_cube_kv::CoordCubeKV;
+use tagma_map::CoordMap;
+use tagma_map::coord_cube_map::CoordCubeMap;
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -277,76 +277,76 @@ fn bench_binding_count(c: &mut Criterion) {
 }
 
 // ===========================================================================
-// kv/ — CoordKVStore
+// map/ — CoordMapStore
 // ===========================================================================
 
-fn build_kv(n: usize) -> CoordKVStore<6> {
-    let mut kv = CoordKVStore::<6>::new(Box::new(MemoryOrigin::new()), 64);
+fn build_map(n: usize) -> CoordMapStore<6> {
+    let mut map = CoordMapStore::<6>::new(Box::new(MemoryOrigin::new()), 64);
     for p in paths(n) {
-        kv.put_path(&p, b"value").unwrap();
+        map.put_path(&p, b"value").unwrap();
     }
-    kv
+    map
 }
 
-fn bench_kv_put(c: &mut Criterion) {
+fn bench_map_put(c: &mut Criterion) {
     let ps = paths(RECORDS);
-    c.bench_function("kv/put_1k", |b| {
+    c.bench_function("map/put_1k", |b| {
         b.iter(|| {
-            let mut kv = CoordKVStore::<6>::new(Box::new(MemoryOrigin::new()), 64);
+            let mut map = CoordMapStore::<6>::new(Box::new(MemoryOrigin::new()), 64);
             for p in &ps {
-                kv.put_path(p, b"value").unwrap();
+                map.put_path(p, b"value").unwrap();
             }
-            black_box(kv);
+            black_box(map);
         })
     });
 }
 
-fn bench_kv_get(c: &mut Criterion) {
-    let kv = build_kv(RECORDS);
+fn bench_map_get(c: &mut Criterion) {
+    let map = build_map(RECORDS);
     let ps = paths(RECORDS);
-    c.bench_function("kv/get_1k", |b| {
+    c.bench_function("map/get_1k", |b| {
         b.iter(|| {
             for p in &ps {
-                black_box(kv.get_path(p).unwrap());
-            }
-        })
-    });
-}
-
-fn bench_kv_remove(c: &mut Criterion) {
-    let ps = paths(RECORDS);
-    c.bench_function("kv/remove_1k", |b| {
-        b.iter(|| {
-            let mut kv = build_kv(RECORDS);
-            for p in &ps {
-                kv.remove_path(p).unwrap();
+                black_box(map.get_path(p).unwrap());
             }
         })
     });
 }
 
-fn bench_kv_iter(c: &mut Criterion) {
-    let kv = build_kv(RECORDS);
-    c.bench_function("kv/iter_1k", |b| b.iter(|| black_box(kv.iter().unwrap())));
+fn bench_map_remove(c: &mut Criterion) {
+    let ps = paths(RECORDS);
+    c.bench_function("map/remove_1k", |b| {
+        b.iter(|| {
+            let mut map = build_map(RECORDS);
+            for p in &ps {
+                map.remove_path(p).unwrap();
+            }
+        })
+    });
 }
 
-fn bench_kv_flush(c: &mut Criterion) {
+fn bench_map_iter(c: &mut Criterion) {
+    let map = build_map(RECORDS);
+    c.bench_function("map/iter_1k", |b| b.iter(|| black_box(map.iter().unwrap())));
+}
+
+fn bench_map_flush(c: &mut Criterion) {
     let file = temp_file("flush");
-    c.bench_function("kv/flush_1k", |b| {
+    c.bench_function("map/flush_1k", |b| {
         b.iter(|| {
             let origin = Box::new(FileOrigin::open(&file).unwrap());
-            let mut kv = CoordKVStore::<6>::new(origin, 64);
+            let mut map = CoordMapStore::<6>::new(origin, 64);
             for p in paths(100) {
-                kv.put_path(&p, b"value").unwrap();
+                map.put_path(&p, b"value").unwrap();
             }
-            kv.flush().unwrap();
+            map.flush().unwrap();
         })
     });
     std::fs::remove_file(&file).ok();
 }
 
 // ---------------------------------------------------------------------------
-// kv/reopen/ — the header-count invariant
+// map/reopen/ — the header-count invariant
 // ---------------------------------------------------------------------------
 
 /// Reopen reads the persisted record count from the header, so the load
@@ -357,28 +357,28 @@ fn reopen(c: &mut Criterion, n: usize) {
     let file = temp_file(&format!("reopen-{n}"));
     {
         let origin = Box::new(FileOrigin::open(&file).unwrap());
-        let mut kv = CoordKVStore::<6>::new(origin, 64);
+        let mut map = CoordMapStore::<6>::new(origin, 64);
         for p in paths(n) {
-            kv.put_path(&p, b"value").unwrap();
+            map.put_path(&p, b"value").unwrap();
         }
-        kv.flush().unwrap();
+        map.flush().unwrap();
     }
-    c.bench_function(&format!("kv/reopen/n{n}"), |b| {
+    c.bench_function(&format!("map/reopen/n{n}"), |b| {
         b.iter(|| {
             let origin = Box::new(FileOrigin::open(&file).unwrap());
-            let kv = CoordKVStore::<6>::load(origin, 64).unwrap();
-            assert_eq!(kv.len(), n, "reopen must restore the record count");
-            black_box(kv.len());
+            let map = CoordMapStore::<6>::load(origin, 64).unwrap();
+            assert_eq!(map.len(), n, "reopen must restore the record count");
+            black_box(map.len());
         })
     });
     std::fs::remove_file(&file).ok();
 }
 
-fn bench_kv_reopen_1k(c: &mut Criterion) {
+fn bench_map_reopen_1k(c: &mut Criterion) {
     reopen(c, 1_000);
 }
 
-fn bench_kv_reopen_10k(c: &mut Criterion) {
+fn bench_map_reopen_10k(c: &mut Criterion) {
     reopen(c, 10_000);
 }
 
@@ -387,11 +387,11 @@ fn bench_kv_reopen_10k(c: &mut Criterion) {
 // ===========================================================================
 
 fn bench_spatial_proximity(c: &mut Criterion) {
-    let kv = build_kv(RECORDS);
+    let map = build_map(RECORDS);
     let center = path_of(42);
     for (name, radius) in [("r1", 1usize), ("r2", 2), ("r3", 3)] {
         c.bench_function(&format!("spatial/proximity_{name}_1k"), |b| {
-            b.iter(|| black_box(kv.proximity::<2, 3>(&center, radius)))
+            b.iter(|| black_box(map.proximity::<2, 3>(&center, radius)))
         });
     }
 }
@@ -428,10 +428,10 @@ fn bench_store_coord_insert(c: &mut Criterion) {
     });
 }
 
-fn bench_store_kv_insert(c: &mut Criterion) {
-    c.bench_function("store/kv_insert_1k", |b| {
+fn bench_store_map_insert(c: &mut Criterion) {
+    c.bench_function("store/map_insert_1k", |b| {
         b.iter(|| {
-            let store = KvEntityStore::<6, u64>::new(Box::new(MemoryOrigin::new()), 64);
+            let store = MapEntityStore::<6, u64>::new(Box::new(MemoryOrigin::new()), 64);
             block_on(async {
                 for i in 0..RECORDS as u64 {
                     store.insert(format!("k{i}"), i).await;
@@ -442,27 +442,27 @@ fn bench_store_kv_insert(c: &mut Criterion) {
     });
 }
 
-fn bench_store_kv_values(c: &mut Criterion) {
-    let store = KvEntityStore::<6, u64>::new(Box::new(MemoryOrigin::new()), 64);
+fn bench_store_map_values(c: &mut Criterion) {
+    let store = MapEntityStore::<6, u64>::new(Box::new(MemoryOrigin::new()), 64);
     block_on(async {
         for i in 0..RECORDS as u64 {
             store.insert(format!("k{i}"), i).await;
         }
     });
-    c.bench_function("store/kv_values_1k", |b| {
+    c.bench_function("store/map_values_1k", |b| {
         b.iter(|| black_box(block_on(store.values())))
     });
 }
 
-fn bench_store_kv_proximity(c: &mut Criterion) {
-    let store = KvEntityStore::<6, u64>::new(Box::new(MemoryOrigin::new()), 64);
+fn bench_store_map_proximity(c: &mut Criterion) {
+    let store = MapEntityStore::<6, u64>::new(Box::new(MemoryOrigin::new()), 64);
     block_on(async {
         for i in 0..RECORDS as u64 {
             store.insert(format!("k{i}"), i).await;
         }
     });
     let center = CoordPath::new([coord(5), coord(5), coord(0), coord(0), coord(0), coord(0)]);
-    c.bench_function("store/kv_proximity_r2_1k", |b| {
+    c.bench_function("store/map_proximity_r2_1k", |b| {
         b.iter(|| black_box(store.proximity::<2, 3>(&center, 2)))
     });
 }
@@ -484,18 +484,18 @@ criterion_group!(
     bench_binding_locate_or_create,
     bench_binding_iter,
     bench_binding_count,
-    bench_kv_put,
-    bench_kv_get,
-    bench_kv_remove,
-    bench_kv_iter,
-    bench_kv_flush,
-    bench_kv_reopen_1k,
-    bench_kv_reopen_10k,
+    bench_map_put,
+    bench_map_get,
+    bench_map_remove,
+    bench_map_iter,
+    bench_map_flush,
+    bench_map_reopen_1k,
+    bench_map_reopen_10k,
     bench_spatial_proximity,
     bench_store_memory_insert,
     bench_store_coord_insert,
-    bench_store_kv_insert,
-    bench_store_kv_values,
-    bench_store_kv_proximity,
+    bench_store_map_insert,
+    bench_store_map_values,
+    bench_store_map_proximity,
 );
 criterion_main!(benches);

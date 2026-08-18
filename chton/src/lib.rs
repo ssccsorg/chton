@@ -12,16 +12,16 @@
 //!   contexts),
 //! - the binding layer adapts coordinate paths to origin offsets and is the
 //!   CoordSpace persistence backend,
-//! - the kv layer implements the tagma-kv CoordKV contract over the
+//! - the map layer implements the tagma-map CoordMap contract over the
 //!   binding backend: the materialized key-value surface over file origins.
 //!
 //! A protocol is origin-agnostic and an origin is protocol-agnostic. The
-//! protocol surface is the tagma-kv CoordKV contract, owned by tagma; chton
+//! protocol surface is the tagma-map CoordMap contract, owned by tagma; chton
 //! provides the materialization backends that protocols bind to.
 
 pub mod binding;
 pub mod cell;
 pub mod io;
-pub mod kv;
+pub mod map;
 pub mod origin;
 pub mod store;

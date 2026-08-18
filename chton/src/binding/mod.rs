@@ -167,7 +167,7 @@ pub struct TreeStrategy<const N: usize> {
     free_head: u64,
     node_size: u64,
     /// Materialized record count, persisted in the header so a reopen
-    /// needs no tree walk. Kept in sync by the kv layer on flush.
+    /// needs no tree walk. Kept in sync by the map layer on flush.
     record_count: u64,
 }
 
@@ -265,7 +265,7 @@ impl<const N: usize> TreeStrategy<N> {
     }
 
     /// The persisted materialized record count (restored from the header
-    /// on load, updated by the kv layer on flush).
+    /// on load, updated by the map layer on flush).
     pub fn record_count(&self) -> u64 {
         self.record_count
     }

@@ -78,7 +78,7 @@ serialization step.
 ### Tooling
 
 run.sh is the single entry point: fmt, clippy, build, tests, and the
-kv_demo usage scenario. Fourteen tests cover the origin, binding, and
+map_demo usage scenario. Fourteen tests cover the origin, binding, and
 protocol layers, including a depth-6 path walk and file persistence across
 reopen.
 

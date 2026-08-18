@@ -3,7 +3,7 @@
 
 use chton::origin::{FileOrigin, MemoryOrigin};
 use chton::store::{
-    CoordEntityStore, EntityStore, KeyError, KvEntityStore, MemoryEntityStore, str_to_coordpath,
+    CoordEntityStore, EntityStore, KeyError, MapEntityStore, MemoryEntityStore, str_to_coordpath,
 };
 use futures_executor::block_on;
 use serde::{Deserialize, Serialize};
@@ -251,8 +251,8 @@ fn over_capacity_key_rejected() {
 }
 
 #[test]
-fn kv_entity_store_round_trip_and_flush() {
-    let store = KvEntityStore::<16, Doc>::new(Box::new(MemoryOrigin::new()), 512);
+fn map_entity_store_round_trip_and_flush() {
+    let store = MapEntityStore::<16, Doc>::new(Box::new(MemoryOrigin::new()), 512);
     block_on(async {
         store
             .insert(
@@ -274,12 +274,13 @@ fn kv_entity_store_round_trip_and_flush() {
 }
 
 #[test]
-fn kv_entity_store_persists_across_reopen() {
+fn map_entity_store_persists_across_reopen() {
     let path = std::env::temp_dir().join(format!("chton-store-{}.bin", std::process::id()));
     let path2 = path.clone();
 
     {
-        let store = KvEntityStore::<16, Doc>::new(Box::new(FileOrigin::open(&path).unwrap()), 4096);
+        let store =
+            MapEntityStore::<16, Doc>::new(Box::new(FileOrigin::open(&path).unwrap()), 4096);
         block_on(async {
             store
                 .insert(
@@ -294,7 +295,7 @@ fn kv_entity_store_persists_across_reopen() {
     }
     {
         let store =
-            KvEntityStore::<16, Doc>::load(Box::new(FileOrigin::open(&path2).unwrap()), 4096)
+            MapEntityStore::<16, Doc>::load(Box::new(FileOrigin::open(&path2).unwrap()), 4096)
                 .unwrap();
         block_on(async {
             assert_eq!(store.len().await, 1);

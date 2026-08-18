@@ -19,8 +19,8 @@ cargo bench -p chton-bench -- origin 2>&1 | tee "$RESULT_DIR/output-${TIMESTAMP}
 echo "=== Running binding benchmarks ==="
 cargo bench -p chton-bench -- binding 2>&1 | tee -a "$RESULT_DIR/output-${TIMESTAMP}.txt" || true
 
-echo "=== Running kv benchmarks (reopen + spatial included) ==="
-cargo bench -p chton-bench -- kv 2>&1 | tee -a "$RESULT_DIR/output-${TIMESTAMP}.txt" || true
+echo "=== Running map benchmarks (reopen + spatial included) ==="
+cargo bench -p chton-bench -- map 2>&1 | tee -a "$RESULT_DIR/output-${TIMESTAMP}.txt" || true
 
 echo "=== Running spatial benchmarks ==="
 cargo bench -p chton-bench -- spatial 2>&1 | tee -a "$RESULT_DIR/output-${TIMESTAMP}.txt" || true
