@@ -8,7 +8,6 @@ If --input is omitted, uses QUARTO_PROJECT_INPUT_FILE or the first valid .qmd fi
 import argparse
 import hashlib
 import os
-import re
 import sys
 import textwrap
 from datetime import datetime
@@ -17,27 +16,26 @@ from pathlib import Path
 import yaml
 
 
-LATEX_SPECIAL = re.compile(r"[&%$#_{}~^\\]")
+def latex_escape(s: str) -> str:
+    """Escape LaTeX special characters so a value typesets in text mode.
 
-
-def latex_escape(value: str) -> str:
-    """Escape special LaTeX characters in a string."""
-    def _replace(m: re.Match) -> str:
-        ch = m.group(0)
-        mapping = {
-            "\\": "\\textbackslash{}",
-            "&": "\\&",
-            "%": "\\%",
-            "$": "\\$",
-            "#": "\\#",
-            "_": "\\_",
-            "{": "\\{",
-            "}": "\\}",
-            "~": "\\textasciitilde{}",
-            "^": "\\textasciicircum{}",
-        }
-        return mapping[ch]
-    return LATEX_SPECIAL.sub(_replace, value)
+    The version string combines a user-supplied prefix with a file hash and
+    date, so the prefix may carry characters such as the underscore that
+    LaTeX treats as math-mode commands. Escaping keeps the macro safe for
+    text-mode consumers such as the PDF background watermark.
+    """
+    return (
+        s.replace("\\", r"\textbackslash{}")
+        .replace("&", r"\&")
+        .replace("%", r"\%")
+        .replace("$", r"\$")
+        .replace("#", r"\#")
+        .replace("_", r"\_")
+        .replace("{", r"\{")
+        .replace("}", r"\}")
+        .replace("~", r"\textasciitilde{}")
+        .replace("^", r"\textasciicircum{}")
+    )
 
 
 def extract_front_matter(qmd_path):
@@ -103,29 +101,37 @@ def _resolve_metadata_files(front: dict, qmd_path: str) -> dict:
 def main():
     parser = argparse.ArgumentParser(description="Generate LaTeX metadata for SSCCS")
     parser.add_argument(
-        "--input", "-i", required=False,
-        help="Path to the main QMD file (e.g., index.qmd).",
+        "--input",
+        "-i",
+        required=False,
+        help="Path to the main QMD file (e.g., index.qmd). If not provided, uses QUARTO_PROJECT_INPUT_FILE or first valid .qmd in directory.",
     )
     parser.add_argument(
-        "--output", "-o", default="./_include/_metadata.tex",
+        "--output",
+        "-o",
+        default="./_include/_metadata.tex",
         help="Output LaTeX metadata file path",
     )
     parser.add_argument(
-        "--version_prefix", "-p", default=None,
-        help="Version prefix (e.g., 0.1)",
+        "--version_prefix", "-p", default=None, help="Version prefix (e.g., 0.1)"
     )
     parser.add_argument(
-        "--version_mark", action="store_true",
+        "--version_mark",
+        action="store_true",
         help="Include background version watermark in PDF",
     )
     args = parser.parse_args()
 
+    # ----- Determine input file path -----
     qmd_path = args.input
     if not qmd_path:
+        # Try environment variable
         qmd_path = os.environ.get("QUARTO_PROJECT_INPUT_FILE")
         if qmd_path and not os.path.exists(qmd_path):
-            qmd_path = None
+            qmd_path = None  # invalid path, ignore
+
         if not qmd_path:
+            # Fallback: Find a valid .qmd file with front matter
             valid_qmds = []
             for f in os.listdir("."):
                 if f.endswith(".qmd"):
@@ -135,19 +141,23 @@ def main():
                                 valid_qmds.append(f)
                     except Exception:
                         pass
+
+            # Prioritize index.qmd or proposal.qmd if they exist among valid files
             if "index.qmd" in valid_qmds:
                 qmd_path = "index.qmd"
             elif "proposal.qmd" in valid_qmds:
                 qmd_path = "proposal.qmd"
             else:
                 qmd_path = valid_qmds[0] if valid_qmds else None
+
         if not qmd_path:
             sys.exit(
-                "Error: Cannot determine a valid QMD file for hashing."
+                "Error: Cannot determine a valid QMD file for hashing. Please specify --input or ensure a .qmd file with YAML front matter exists in the current directory."
             )
     elif not os.path.isfile(qmd_path):
         sys.exit(f"Error: Input file '{qmd_path}' not found.")
 
+    # ----- Compute version -----
     with open(qmd_path, "rb") as f:
         file_hash = hashlib.sha256(f.read()).hexdigest()
     date_short = datetime.now().strftime("%y%m%d")
@@ -156,9 +166,11 @@ def main():
     else:
         version_str = f"{file_hash[:6]}-{date_short}"
 
+    # ----- Extract YAML front matter (author/affiliations are optional) -----
     front = extract_front_matter(qmd_path)
     front = _resolve_metadata_files(front, qmd_path)
 
+    # Default empty values for all author and affiliation fields
     author_name = ""
     author_email = ""
     author_role = ""
@@ -167,6 +179,7 @@ def main():
     affiliation_url = ""
     affiliation_domain = ""
 
+    # Check if author information exists and is valid
     if (
         front
         and "author" in front
@@ -178,6 +191,8 @@ def main():
         author_email = author.get("email", "")
         author_role = author.get("role", "")
         orcid = author.get("orcid", "")
+
+        # Check for affiliations within the author
         if (
             "affiliations" in author
             and isinstance(author["affiliations"], list)
@@ -188,18 +203,20 @@ def main():
             affiliation_url = aff.get("url", "")
             affiliation_domain = aff.get("domain", "")
 
+    # ----- Ensure output directory -----
     os.makedirs(os.path.dirname(args.output), exist_ok=True)
 
+    # ----- Write LaTeX macros -----
     with open(args.output, "w", encoding="utf-8") as f:
         f.write(f"\\newcommand{{\\version}}{{{latex_escape(version_str)}}}\n")
         f.write(f"\\newcommand{{\\timestamp}}{{{datetime.now()}}}\n")
-        f.write(f"\\newcommand{{\\affiliationname}}{{{latex_escape(affiliation_name)}}}\n")
-        f.write(f"\\newcommand{{\\affiliationurl}}{{{latex_escape(affiliation_url)}}}\n")
-        f.write(f"\\newcommand{{\\affiliationdomain}}{{{latex_escape(affiliation_domain)}}}\n")
-        f.write(f"\\newcommand{{\\authorname}}{{{latex_escape(author_name)}}}\n")
-        f.write(f"\\newcommand{{\\authoremail}}{{{latex_escape(author_email)}}}\n")
-        f.write(f"\\newcommand{{\\authorrole}}{{{latex_escape(author_role)}}}\n")
-        f.write(f"\\newcommand{{\\orcid}}{{{latex_escape(orcid)}}}\n")
+        f.write(f"\\newcommand{{\\affiliationname}}{{{affiliation_name}}}\n")
+        f.write(f"\\newcommand{{\\affiliationurl}}{{{affiliation_url}}}\n")
+        f.write(f"\\newcommand{{\\affiliationdomain}}{{{affiliation_domain}}}\n")
+        f.write(f"\\newcommand{{\\authorname}}{{{author_name}}}\n")
+        f.write(f"\\newcommand{{\\authoremail}}{{{author_email}}}\n")
+        f.write(f"\\newcommand{{\\authorrole}}{{{author_role}}}\n")
+        f.write(f"\\newcommand{{\\orcid}}{{{orcid}}}\n")
         f.write(f"\\newcommand{{\\filehash}}{{{file_hash}}}\n")
         if args.version_mark:
             f.write(
