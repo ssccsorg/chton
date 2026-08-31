@@ -25,6 +25,11 @@ check_checks() {
     echo "--- build + test (release) ---"
     cargo build --release
     cargo test --release
+    echo "--- no_std anchors (no-default-features) ---"
+    cargo check --no-default-features
+    cargo test --no-default-features --test no_std_anchors
+    echo "--- wasm32-unknown-unknown check (true no_std target) ---"
+    cargo check --no-default-features --target wasm32-unknown-unknown
 }
 
 build_and_test() {
