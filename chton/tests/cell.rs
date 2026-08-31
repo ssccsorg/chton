@@ -6,15 +6,16 @@
 // observable contract that the refactor must preserve:
 //
 //  1. value round-trip through borrow/borrow_mut,
-//  2. nested borrow of the same cell panics (RefCell reentrancy check),
-//  3. cross-thread access serializes (native critical-section path),
-//  4. the two cell types are independent: holding a borrow on one cell
+//  2. same-thread nested shared borrow is reentrant (RefCell semantics),
+//  3. shared-then-exclusive borrow of the same cell panics,
+//  4. cross-thread access serializes (native critical-section path),
+//  5. two distinct cells are independent: holding a borrow on one cell
 //     does not block a borrow on another.
 //
 // The wasm32-unknown-unknown path is compiled by the workspace wasm check;
 // these tests run on native and exercise the critical-section backend.
 
-use chhton::cell::Cell2;
+use chton::cell::Cell2;
 use std::sync::Arc;
 
 #[test]
@@ -26,13 +27,26 @@ fn value_round_trip() {
 }
 
 #[test]
+fn same_cell_shared_borrow_is_reentrant() {
+    let c = Cell2::new(1u64);
+    let g1 = c.borrow();
+    // The critical-section backend allows a nested shared borrow in the
+    // same thread (unlike std::sync::Mutex, which would deadlock). This is
+    // the RefCell semantics preserved by Mutex<RefCell>.
+    let g2 = c.borrow();
+    assert_eq!(*g1 + *g2, 2);
+    drop(g1);
+    drop(g2);
+}
+
+#[test]
 #[should_panic(expected = "already borrowed")]
-fn same_cell_nested_borrow_panics() {
+fn shared_then_exclusive_borrow_panics() {
     let c = Cell2::new(1u64);
     let _guard = c.borrow();
-    // The RefCell reentrancy check fires: a second borrow of the same cell
-    // in the same thread panics, matching the wasm RefCell path.
-    let _second = c.borrow();
+    // RefCell reentrancy check fires: a shared borrow held while requesting
+    // an exclusive borrow panics.
+    let _second = c.borrow_mut();
 }
 
 #[test]

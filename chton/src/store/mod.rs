@@ -23,8 +23,21 @@
 // capacity are rejected with KeyError::TooLong. Do not mix the two
 // formats for the same key.
 
+use alloc::boxed::Box;
+use alloc::string::String;
+use alloc::string::ToString;
+use alloc::vec::Vec;
+
+// `std::collections::HashMap` exists only under the std feature; alloc has
+// no HashMap. The no_std path substitutes a BTreeMap, which satisfies the
+// same EntityStore contract (iteration order is unspecified for HashMap,
+// so callers cannot rely on it).
+#[cfg(feature = "std")]
 use std::collections::HashMap;
-use std::marker::PhantomData;
+#[cfg(not(feature = "std"))]
+use alloc::collections::BTreeMap as HashMap;
+
+use core::marker::PhantomData;
 
 use crate::cell::Cell2;
 use crate::map::CoordMapStore;
@@ -91,8 +104,8 @@ pub enum KeyError {
     TooLong { len: usize, depth: usize },
 }
 
-impl std::fmt::Display for KeyError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for KeyError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             KeyError::Empty => write!(f, "empty key cannot be mapped to a coordinate path"),
             KeyError::TooLong { len, depth } => write!(
@@ -103,7 +116,7 @@ impl std::fmt::Display for KeyError {
     }
 }
 
-impl std::error::Error for KeyError {}
+impl core::error::Error for KeyError {}
 
 /// Map a string key onto a `CoordPath<M>` deterministically and
 /// injectively. The depth M is the consumer's parameter and must be at
@@ -469,7 +482,9 @@ where
 
 // ── MemoryEntityStore ────────────────────────────────────────────────────
 
-/// In-memory EntityStore using Cell2 (Mutex on native, RefCell on wasm).
+/// In-memory EntityStore using Cell2 (Mutex<RefCell> on native, RefCell on
+/// wasm). Backed by HashMap under the std feature and BTreeMap on no_std
+/// targets (alloc has no HashMap).
 pub struct MemoryEntityStore<V> {
     inner: Cell2<HashMap<String, V>>,
 }

@@ -10,10 +10,15 @@
 // The record boundary here is the seam for a future codec layer: the
 // value encoding is local to this backend.
 
-use std::sync::Mutex;
+use alloc::boxed::Box;
+use alloc::format;
+use alloc::string::String;
+use alloc::string::ToString;
+use alloc::vec::Vec;
 
 use tagma_map::coord_gen::CoordKey;
 
+use crate::cell::Cell2;
 use crate::io::{BufferIo, FileIo, IoFuture};
 use crate::map::CoordMapStore;
 
@@ -40,7 +45,7 @@ fn decode_value(value: &[u8]) -> Result<(String, Vec<u8>), String> {
     let path_bytes = value
         .get(4..4 + path_len)
         .ok_or_else(|| "coord-map value path truncated".to_string())?;
-    let path = std::str::from_utf8(path_bytes)
+    let path = core::str::from_utf8(path_bytes)
         .map_err(|e| format!("coord-map value path not utf-8: {e}"))?
         .to_string();
     Ok((path, value[4 + path_len..].to_vec()))
@@ -74,9 +79,11 @@ fn key_of<const N: usize>(path: &str) -> Result<CoordKey<N>, String> {
 /// A FileIo backend over a CoordMap store.
 ///
 /// The store is interior-mutable because `FileIo` methods take `&self`
-/// while `CoordMapStore` writes need `&mut self`.
+/// while `CoordMapStore` writes need `&mut self`. `Cell2` provides the
+/// interior-mutability primitive: a critical-section Mutex<RefCell> on
+/// native targets and a RefCell on wasm32-unknown-unknown.
 pub struct CoordMapStoreIo<const N: usize> {
-    map: Mutex<CoordMapStore<N>>,
+    map: Cell2<CoordMapStore<N>>,
 }
 
 impl<const N: usize> CoordMapStoreIo<N> {
@@ -92,19 +99,19 @@ impl<const N: usize> CoordMapStoreIo<N> {
             );
         }
         Self {
-            map: Mutex::new(map),
+            map: Cell2::new(map),
         }
     }
 }
 
 impl<const N: usize> BufferIo for CoordMapStoreIo<N> {
     fn is_buffered(&self) -> bool {
-        self.map.lock().unwrap().is_buffered()
+        self.map.borrow().is_buffered()
     }
 
     fn flush<'a>(&'a self) -> IoFuture<'a, ()> {
         let map = &self.map;
-        Box::pin(async move { map.lock().unwrap().flush().map_err(|e| e.to_string()) })
+        Box::pin(async move { map.borrow_mut().flush().map_err(|e| e.to_string()) })
     }
 }
 
@@ -112,9 +119,9 @@ impl<const N: usize> FileIo for CoordMapStoreIo<N> {
     fn read<'a>(&'a self, path: &'a str) -> IoFuture<'a, Option<Vec<u8>>> {
         let map = &self.map;
         Box::pin(async move {
-            let guard = map.lock().unwrap();
             let key = key_of::<N>(path)?;
-            match guard.get_path(&key.to_coord_path()) {
+            let result = map.borrow().get_path(&key.to_coord_path());
+            match result {
                 Ok(Some(value)) => Ok(Some(decode_value(&value)?.1)),
                 Ok(None) => Ok(None),
                 Err(e) => Err(e.to_string()),
@@ -125,9 +132,8 @@ impl<const N: usize> FileIo for CoordMapStoreIo<N> {
     fn write<'a>(&'a self, path: &'a str, data: &'a [u8]) -> IoFuture<'a, ()> {
         let map = &self.map;
         Box::pin(async move {
-            let mut guard = map.lock().unwrap();
             let key = key_of::<N>(path)?;
-            guard
+            map.borrow_mut()
                 .put_path(&key.to_coord_path(), &encode_value(path, data))
                 .map(|_| ())
                 .map_err(|e| e.to_string())
@@ -137,8 +143,7 @@ impl<const N: usize> FileIo for CoordMapStoreIo<N> {
     fn list<'a>(&'a self, prefix: &'a str) -> IoFuture<'a, Vec<String>> {
         let map = &self.map;
         Box::pin(async move {
-            let guard = map.lock().unwrap();
-            let entries = guard.iter().map_err(|e| e.to_string())?;
+            let entries = map.borrow().iter().map_err(|e| e.to_string())?;
             let mut out = Vec::new();
             for (_, value) in entries {
                 if let Ok((path, _)) = decode_value(&value)
@@ -154,9 +159,8 @@ impl<const N: usize> FileIo for CoordMapStoreIo<N> {
     fn delete<'a>(&'a self, path: &'a str) -> IoFuture<'a, ()> {
         let map = &self.map;
         Box::pin(async move {
-            let mut guard = map.lock().unwrap();
             let key = key_of::<N>(path)?;
-            guard
+            map.borrow_mut()
                 .remove_path(&key.to_coord_path())
                 .map(|_| ())
                 .map_err(|e| e.to_string())

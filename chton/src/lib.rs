@@ -19,6 +19,15 @@
 //! protocol surface is the tagma-map CoordMap contract, owned by tagma; chton
 //! provides the materialization backends that protocols bind to.
 
+#![no_std]
+extern crate alloc;
+
+// When the `std` feature is enabled, expose the standard library for the
+// host-side materialization backends (FsIo, mapped files). The core IO
+// contract and the cell primitive stay std-free.
+#[cfg(feature = "std")]
+extern crate std;
+
 pub mod binding;
 pub mod cell;
 pub mod io;

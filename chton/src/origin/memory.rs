@@ -1,5 +1,7 @@
 //! In-memory origin.
 
+use alloc::vec::Vec;
+
 use super::{AddressMode, Binding, Capabilities, Direction, Origin, OriginError, Persistence};
 
 /// A volatile byte region backed by a `Vec<u8>`.

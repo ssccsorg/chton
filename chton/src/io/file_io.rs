@@ -36,8 +36,11 @@
 // futures_executor::block_on internally. Async is the design center;
 // sync is the extension.
 
-use std::future::Future;
-use std::pin::Pin;
+use alloc::boxed::Box;
+use alloc::string::String;
+use alloc::vec::Vec;
+use core::future::Future;
+use core::pin::Pin;
 
 /// Type alias to suppress clippy::type_complexity on FileIo methods.
 #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]

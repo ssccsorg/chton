@@ -6,16 +6,18 @@
 //! direction, persistence, and binding, so that one surface accepts memory,
 //! file, signal, network, and GPU origins.
 
-use std::error::Error;
-use std::fmt;
+use core::error::Error;
+use core::fmt;
 
+#[cfg(feature = "std")]
 mod file;
-#[cfg(unix)]
+#[cfg(all(unix, feature = "std"))]
 mod mapped_file;
 mod memory;
 
+#[cfg(feature = "std")]
 pub use file::FileOrigin;
-#[cfg(unix)]
+#[cfg(all(unix, feature = "std"))]
 pub use mapped_file::MappedFileOrigin;
 pub use memory::MemoryOrigin;
 
@@ -66,6 +68,9 @@ pub struct Capabilities {
 /// Errors from origin operations.
 #[derive(Debug)]
 pub enum OriginError {
+    /// The underlying host IO operation failed. Present only when the
+    /// `std` feature is enabled (file-backed origins).
+    #[cfg(feature = "std")]
     Io(std::io::Error),
     OutOfBounds { offset: u64, len: u64 },
     Unsupported,
@@ -74,6 +79,7 @@ pub enum OriginError {
 impl fmt::Display for OriginError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            #[cfg(feature = "std")]
             OriginError::Io(e) => write!(f, "origin io error: {e}"),
             OriginError::OutOfBounds { offset, len } => {
                 write!(f, "origin access out of bounds: offset {offset}, len {len}")
@@ -86,12 +92,14 @@ impl fmt::Display for OriginError {
 impl Error for OriginError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
+            #[cfg(feature = "std")]
             OriginError::Io(e) => Some(e),
             _ => None,
         }
     }
 }
 
+#[cfg(feature = "std")]
 impl From<std::io::Error> for OriginError {
     fn from(e: std::io::Error) -> Self {
         OriginError::Io(e)

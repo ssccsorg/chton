@@ -115,6 +115,7 @@ name = "chton"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "critical-section",
  "futures-executor",
  "memmap2",
  "postcard",

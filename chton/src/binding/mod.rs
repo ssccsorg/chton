@@ -35,8 +35,10 @@
 //! The surface assumes a single writer: bump and free list state live in
 //! the strategy, so one strategy must own the origin at a time.
 
-use std::error::Error;
-use std::fmt;
+use alloc::vec;
+use alloc::vec::Vec;
+use core::error::Error;
+use core::fmt;
 
 use crate::origin::{Origin, OriginError};
 use tagma_core::{Coord, CoordPath};
