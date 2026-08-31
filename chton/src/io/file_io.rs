@@ -119,10 +119,16 @@ pub async fn default_apply_batch(io: &impl FileIo, ops: &[WriteOp]) -> Result<()
 
 /// Wraps a FileIo into a blocking/sync interface.
 /// Uses futures_executor::block_on internally.
+///
+/// Std-only: `block_on` needs an executor, which needs std. On no_std
+/// targets (MCU) callers drive the async `FileIo` methods directly from
+/// the launcher's own executor (e.g. embassy).
+#[cfg(feature = "std")]
 pub struct SyncFileIo<A: FileIo> {
     inner: A,
 }
 
+#[cfg(feature = "std")]
 impl<A: FileIo> SyncFileIo<A> {
     pub fn new(inner: A) -> Self {
         Self { inner }

@@ -12,18 +12,18 @@ default = ["std"]
 # critical-section symbols on std targets. no_std targets (MCU) keep the
 # feature off; the firmware crate supplies a critical-section implementation
 # (e.g. via set_impl! or a HAL).
-std = ["critical-section/std"]
+std = ["critical-section/std", "dep:futures-executor", "dep:walkdir"]
 
 [dependencies]
 tagma-core.workspace = true
 tagma-geo.workspace = true
 tagma-map.workspace = true
 async-trait = "0.1"
-futures-executor = "0.3"
+futures-executor = { version = "0.3", optional = true }
 postcard = { version = "1", features = ["alloc"] }
-serde = { version = "1", features = ["derive"] }
-sha2 = "0.10"
-walkdir = "2"
+serde = { version = "1", default-features = false, features = ["derive", "alloc"] }
+sha2 = { version = "0.10", default-features = false }
+walkdir = { version = "2", optional = true }
 critical-section = "1"
 
 [target.'cfg(unix)'.dependencies]
