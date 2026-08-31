@@ -8,6 +8,8 @@ edition = "2024"
 license = "Apache-2.0"
 
 [workspace.dependencies]
-tagma-core = { git = "https://github.com/ssccsorg/syntagma", branch = "main" }
-tagma-geo = { git = "https://github.com/ssccsorg/syntagma", branch = "main" }
-tagma-map = { git = "https://github.com/ssccsorg/syntagma", branch = "main" }
+# TEMP (verification): local syntagma checkout with tagma-geo no_std.
+# Revert to the GitHub URL before merge.
+tagma-core = { git = "file:///Users/blackgene/Documents/syntagma", branch = "181-tagma-geo-nostd" }
+tagma-geo = { git = "file:///Users/blackgene/Documents/syntagma", branch = "181-tagma-geo-nostd" }
+tagma-map = { git = "file:///Users/blackgene/Documents/syntagma", branch = "181-tagma-geo-nostd" }
