@@ -30,6 +30,8 @@ check_checks() {
     cargo test --no-default-features --test no_std_anchors
     echo "--- wasm32-unknown-unknown check (true no_std target) ---"
     cargo check --no-default-features --target wasm32-unknown-unknown
+    echo "--- riscv32imac-unknown-none-elf check (MCU target) ---"
+    cargo check --no-default-features --target riscv32imac-unknown-none-elf
 }
 
 build_and_test() {
