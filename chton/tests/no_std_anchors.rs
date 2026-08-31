@@ -12,6 +12,22 @@
 // exercised by the regular (std) test suite in tests/io.rs and
 // tests/origin.rs; they are not reachable from this file by design.
 
+// The no_std build disables critical-section's std implementation, so the
+// native test binary needs an explicit implementation to link. This is a
+// no-op (single-threaded test) placeholder; a real MCU provides the same
+// symbols from the firmware/HAL.
+use critical_section::RawRestoreState;
+
+struct TestCriticalSection;
+critical_section::set_impl!(TestCriticalSection);
+
+unsafe impl critical_section::Impl for TestCriticalSection {
+    unsafe fn acquire() -> RawRestoreState {
+        false
+    }
+    unsafe fn release(_restore_state: RawRestoreState) {}
+}
+
 use chton::cell::Cell2;
 use chton::io::{FileIo, WriteOp};
 use chton::origin::{
