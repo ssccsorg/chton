@@ -72,7 +72,10 @@ pub enum OriginError {
     /// `std` feature is enabled (file-backed origins).
     #[cfg(feature = "std")]
     Io(std::io::Error),
-    OutOfBounds { offset: u64, len: u64 },
+    OutOfBounds {
+        offset: u64,
+        len: u64,
+    },
     Unsupported,
 }
 

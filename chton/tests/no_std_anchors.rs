@@ -82,7 +82,7 @@ fn default_apply_batch_is_std_free() {
     // atomic batches); the default sequential apply must work over any
     // FileIo without touching std.
     fn assert_apply<I: FileIo>(io: &I, ops: &[WriteOp]) {
-        let _ = chton::io::default_apply_batch(io, ops);
+        core::mem::drop(chton::io::default_apply_batch(io, ops));
     }
     let origin = Box::new(MemoryOrigin::with_bytes(b"".to_vec()));
     let map = chton::map::CoordMapStore::<2>::new(origin, 64);

@@ -14,12 +14,18 @@ pub mod file_io;
 /// Filesystem-backed IO. Host-only: requires the `std` feature and is not
 /// available on wasm32-unknown-unknown. (Available on wasm32-wasip2 where
 /// std::fs is present.)
-#[cfg(all(feature = "std", not(all(target_arch = "wasm32", target_os = "unknown"))))]
+#[cfg(all(
+    feature = "std",
+    not(all(target_arch = "wasm32", target_os = "unknown"))
+))]
 pub mod fs_io;
 
 pub use coord_map_io::CoordMapStoreIo;
-pub use file_io::{BatchIo, BufferIo, FileIo, IoFuture, WriteOp, default_apply_batch};
 #[cfg(feature = "std")]
 pub use file_io::SyncFileIo;
-#[cfg(all(feature = "std", not(all(target_arch = "wasm32", target_os = "unknown"))))]
+pub use file_io::{BatchIo, BufferIo, FileIo, IoFuture, WriteOp, default_apply_batch};
+#[cfg(all(
+    feature = "std",
+    not(all(target_arch = "wasm32", target_os = "unknown"))
+))]
 pub use fs_io::FsIo;
