@@ -1,5 +1,16 @@
 // ── FsIo: filesystem-backed FileIo implementation ────────────────────
 //
+// Host-only backend: requires the `std` feature. The module is additionally
+// gated in `io/mod.rs` on `not(all(target_arch = "wasm32", target_os = "unknown"))`.
+
+#![cfg(feature = "std")]
+
+use alloc::boxed::Box;
+use alloc::format;
+use alloc::string::String;
+use alloc::string::ToString;
+use alloc::vec::Vec;
+
 // Wraps std::fs operations behind the FileIo trait.
 // Uses a root directory as the store. Directory structure mirrors the
 // flat key-space: each path becomes a file under root.

@@ -25,6 +25,17 @@ check_checks() {
     echo "--- build + test (release) ---"
     cargo build --release
     cargo test --release
+    echo "--- no_std anchors (no-default-features) ---"
+    cargo check -p chton --no-default-features
+    cargo test --no-default-features --test no_std_anchors
+    echo "--- wasm32-unknown-unknown check (true no_std target) ---"
+    cargo check -p chton --no-default-features --target wasm32-unknown-unknown
+    echo "--- riscv32imac-unknown-none-elf check (MCU target) ---"
+    # The gate targets the storage path (the chton library). The benches
+    # crate is a host-only harness (futures-executor, criterion) and is
+    # excluded, mirroring how the nexus core runner scopes its MCU checks
+    # to the nex-* storage crates.
+    cargo check -p chton --no-default-features --target riscv32imac-unknown-none-elf
 }
 
 build_and_test() {

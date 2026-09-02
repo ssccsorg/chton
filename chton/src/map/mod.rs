@@ -11,9 +11,12 @@
 //! over the payload before write and after read would sit here without
 //! changing the trait surface or the slot layout.
 
-use std::cell::Cell;
-use std::error::Error;
-use std::fmt;
+use alloc::boxed::Box;
+use alloc::vec;
+use alloc::vec::Vec;
+use core::cell::Cell;
+use core::error::Error;
+use core::fmt;
 
 use crate::binding::{BindingError, SpaceStrategy, TreeStrategy};
 use crate::origin::{Origin, OriginError};

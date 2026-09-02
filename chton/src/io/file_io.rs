@@ -36,14 +36,19 @@
 // futures_executor::block_on internally. Async is the design center;
 // sync is the extension.
 
-use std::future::Future;
-use std::pin::Pin;
+use alloc::boxed::Box;
+use alloc::string::String;
+use alloc::vec::Vec;
+use core::future::Future;
+use core::pin::Pin;
 
 /// Type alias to suppress clippy::type_complexity on FileIo methods.
-#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+/// On non-wasm targets the future is Send; single-threaded wasm runtimes
+/// (browser, wasip1, MCU wasip2 under Wasmi/WAMR) do not need it.
+#[cfg(not(target_family = "wasm"))]
 pub type IoFuture<'a, T> = Pin<Box<dyn Future<Output = Result<T, String>> + Send + 'a>>;
 
-#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+#[cfg(target_family = "wasm")]
 pub type IoFuture<'a, T> = Pin<Box<dyn Future<Output = Result<T, String>> + 'a>>;
 
 /// A single IO operation that can be committed or rolled back.
@@ -57,7 +62,12 @@ pub enum WriteOp {
 }
 
 /// Async IO operations on a flat key-space.
-#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+///
+/// The Send + Sync bound applies to non-wasm targets only. wasm targets
+/// (browser wasm32-unknown-unknown, wasip1, and the MCU wasip2 launcher
+/// target) are single-threaded runtimes, so the trait drops the bounds
+/// there; a firmware or launcher backend still satisfies them if it can.
+#[cfg(not(target_family = "wasm"))]
 pub trait FileIo: Send + Sync {
     fn read<'a>(&'a self, path: &'a str) -> IoFuture<'a, Option<Vec<u8>>>;
     fn write<'a>(&'a self, path: &'a str, data: &'a [u8]) -> IoFuture<'a, ()>;
@@ -65,7 +75,7 @@ pub trait FileIo: Send + Sync {
     fn delete<'a>(&'a self, path: &'a str) -> IoFuture<'a, ()>;
 }
 
-#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+#[cfg(target_family = "wasm")]
 pub trait FileIo {
     fn read<'a>(&'a self, path: &'a str) -> IoFuture<'a, Option<Vec<u8>>>;
     fn write<'a>(&'a self, path: &'a str, data: &'a [u8]) -> IoFuture<'a, ()>;
@@ -92,12 +102,12 @@ pub trait BufferIo {
 
 /// Batch IO: lego trait for backends that support atomic batch commits.
 /// Separate from FileIo so callers can type-check batch support at compile time.
-#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+#[cfg(not(target_family = "wasm"))]
 pub trait BatchIo: FileIo {
     fn apply_batch<'a>(&'a self, ops: &'a [WriteOp]) -> IoFuture<'a, ()>;
 }
 
-#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+#[cfg(target_family = "wasm")]
 pub trait BatchIo: FileIo {
     fn apply_batch<'a>(&'a self, ops: &'a [WriteOp]) -> IoFuture<'a, ()>;
 }
@@ -116,10 +126,16 @@ pub async fn default_apply_batch(io: &impl FileIo, ops: &[WriteOp]) -> Result<()
 
 /// Wraps a FileIo into a blocking/sync interface.
 /// Uses futures_executor::block_on internally.
+///
+/// Std-only: `block_on` needs an executor, which needs std. On no_std
+/// targets (MCU) callers drive the async `FileIo` methods directly from
+/// the launcher's own executor (e.g. embassy).
+#[cfg(feature = "std")]
 pub struct SyncFileIo<A: FileIo> {
     inner: A,
 }
 
+#[cfg(feature = "std")]
 impl<A: FileIo> SyncFileIo<A> {
     pub fn new(inner: A) -> Self {
         Self { inner }
