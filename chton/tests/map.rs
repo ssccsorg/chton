@@ -240,6 +240,29 @@ fn iter_yields_entries() {
     assert_eq!(entries[1].0, CoordKey::new([3, 4]));
     assert_eq!(entries[1].1, b"b");
 }
+#[test]
+fn iter_projects_full_range_paths_onto_byte_keys() {
+    // CoordMapStore addresses the full Coord index domain, while the
+    // CoordKey output surface is byte-space (0..255 per character).
+    // Stored paths whose coordinates are at or above 256 must project
+    // onto their low bytes without CoordKey::from_coord_path, which
+    // rejects such indices (syntagma issue #59).
+    let mut map = mem_map::<2>();
+    let high = CoordPath::new([coord(5586), coord(256)]);
+    map.put_path(&high, b"high-value").unwrap();
+    assert_eq!(map.len(), 1);
+
+    let entries = map.iter().unwrap();
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].0, CoordKey::new([coord(5586).index() as u8, 0]));
+    assert_eq!(entries[0].1, b"high-value");
+
+    // The path-based API still resolves the full-range entry.
+    assert_eq!(
+        map.get_path(&high).unwrap().as_deref(),
+        Some(&b"high-value"[..])
+    );
+}
 
 #[test]
 fn proximity_finds_nearby() {
