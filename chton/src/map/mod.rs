@@ -28,6 +28,26 @@ use tagma_map::{CoordMap, CoordMapKey};
 /// Byte size of the record length prefix.
 const LENGTH_BYTES: u64 = 8;
 
+/// Projects a full-range coordinate path onto the byte-space key of the
+/// tagma-map surface.
+///
+/// `CoordMapStore` addresses the full Coord index domain `[0, N_VALID)`
+/// per character, while `CoordKey<N>` is tagma-map's byte key (one byte
+/// per character, 0..255). The projection keeps the low byte of every
+/// coordinate index, which matches the previous truncation semantics of
+/// `CoordKey::from_coord_path`. That conversion now rejects indices at or
+/// above 256 (syntagma issue #59) and cannot be used for full-range
+/// paths. The projection is lossy by design: it serves the tagma-map key
+/// surface, and callers that need the full coordinates use the path-based
+/// API (`put_path`, `get_path`).
+fn project_byte_key<const N: usize>(path: &CoordPath<N>) -> CoordKey<N> {
+    let mut bytes = [0u8; N];
+    for (i, coord) in path.coords().iter().enumerate() {
+        bytes[i] = coord.index() as u8;
+    }
+    CoordKey::new(bytes)
+}
+
 /// Errors from materialized key-value operations.
 #[derive(Debug)]
 pub enum MapError {
@@ -165,7 +185,7 @@ impl<const N: usize> CoordMapStore<N> {
         let mut out = Vec::with_capacity(entries.len());
         for (path, offset) in entries {
             let value = self.read_record(offset)?;
-            out.push((CoordKey::from_coord_path(&path), value));
+            out.push((project_byte_key(&path), value));
         }
         Ok(out)
     }

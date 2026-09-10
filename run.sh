@@ -27,7 +27,11 @@ check_checks() {
     cargo test --release
     echo "--- no_std anchors (no-default-features) ---"
     cargo check -p chton --no-default-features
-    cargo test --no-default-features --test no_std_anchors
+    # Scope to the crate: a workspace-wide selection lets the benches
+    # member enable chton's default `std` feature through feature
+    # unification, which re-enables critical-section/std and collides with
+    # the anchor's own critical-section implementation at link time.
+    cargo test -p chton --no-default-features --test no_std_anchors
     echo "--- wasm32-unknown-unknown check (true no_std target) ---"
     cargo check -p chton --no-default-features --target wasm32-unknown-unknown
     echo "--- riscv32imac-unknown-none-elf check (MCU target) ---"

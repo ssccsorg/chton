@@ -6,7 +6,7 @@
 // itself deliberately uses no std APIs, mirroring what an MCU consumer
 // can call. Run with:
 //
-//   cargo test --no-default-features --test no_std_anchors
+//   cargo test -p chton --no-default-features --test no_std_anchors
 //
 // The std-only host backends (FsIo, FileOrigin, MappedFileOrigin) are
 // exercised by the regular (std) test suite in tests/io.rs and
