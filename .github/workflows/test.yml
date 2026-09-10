@@ -1,0 +1,96 @@
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "chton/**"
+      - "benches/**"
+      - "docs/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "run.sh"
+      - ".github/workflows/*.yml"
+      - "!**/*.md"
+  pull_request:
+    branches: ["main"]
+  workflow_dispatch:
+
+# One run per branch or PR at a time: a new push cancels the previous run.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dorny/paths-filter@v3
+        id: src_filter
+        with:
+          filters: |
+            src:
+              - 'chton/**'
+              - 'benches/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'run.sh'
+              - '.github/workflows/*.yml'
+              - '!**/*.md'
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+          targets: wasm32-unknown-unknown, riscv32imac-unknown-none-elf
+      - uses: Swatinem/rust-cache@v2
+      - name: Full pipeline (fmt, clippy, build, test, no_std, target checks)
+        if: steps.src_filter.outputs.src == 'true'
+        run: bash run.sh --check
+
+  doc:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dorny/paths-filter@v3
+        id: doc_filter
+        with:
+          filters: |
+            src:
+              - 'chton/**'
+              - 'Cargo.toml'
+              - 'run.sh'
+              - '.github/workflows/*.yml'
+              - '!**/*.md'
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build API docs
+        if: steps.doc_filter.outputs.src == 'true'
+        run: bash run.sh --doc
+
+  bench:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dorny/paths-filter@v3
+        id: bench_filter
+        with:
+          filters: |
+            src:
+              - 'chton/**'
+              - 'benches/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'run.sh'
+              - '.github/workflows/*.yml'
+              - '!**/*.md'
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build + test + benchmarks
+        if: steps.bench_filter.outputs.src == 'true'
+        run: bash run.sh --bench
