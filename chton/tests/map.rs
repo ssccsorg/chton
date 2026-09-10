@@ -265,6 +265,100 @@ fn iter_projects_full_range_paths_onto_byte_keys() {
 }
 
 #[test]
+fn iter_projection_is_lossy_across_the_byte_domain() {
+    // Index 0 and index 256 both project onto byte 0. The projection exists
+    // for the tagma-map key surface; the path API stays authoritative.
+    let mut map = mem_map::<2>();
+    let low = CoordPath::new([coord(0), coord(0)]);
+    let high = CoordPath::new([coord(256), coord(256)]);
+    map.put_path(&low, b"low").unwrap();
+    map.put_path(&high, b"high").unwrap();
+    assert_eq!(map.len(), 2);
+
+    let entries = map.iter().unwrap();
+    assert_eq!(entries.len(), 2);
+    for (key, _) in &entries {
+        assert_eq!(*key, CoordKey::new([0, 0]), "both paths project to byte 0");
+    }
+    let mut values: Vec<Vec<u8>> = entries.into_iter().map(|(_, value)| value).collect();
+    values.sort();
+    assert_eq!(values, vec![b"high".to_vec(), b"low".to_vec()]);
+
+    // The path-based API keeps the two entries distinct.
+    assert_eq!(map.get_path(&low).unwrap().as_deref(), Some(&b"low"[..]));
+    assert_eq!(map.get_path(&high).unwrap().as_deref(), Some(&b"high"[..]));
+}
+
+#[test]
+fn proximity_finds_full_range_paths() {
+    // CoordMapStore addresses the full Coord index domain, so the
+    // CoordCubeMap query over it must not be limited to byte keys.
+    let mut map = mem_map::<2>();
+    let center = CoordPath::new([coord(300), coord(300)]);
+    let near = CoordPath::new([coord(300), coord(301)]);
+    let far = CoordPath::new([coord(300), coord(320)]);
+    map.put_path(&center, b"center").unwrap();
+    map.put_path(&near, b"near").unwrap();
+    map.put_path(&far, b"far").unwrap();
+
+    let results = map.proximity::<2, 1>(&center, 1);
+    let mut values: Vec<Vec<u8>> = results.into_iter().map(|(_, value)| value).collect();
+    values.sort();
+    assert_eq!(values, vec![b"center".to_vec(), b"near".to_vec()]);
+}
+
+#[test]
+fn full_range_keys_survive_file_reopen() {
+    let path = std::env::temp_dir().join(format!("chton-map-fullrange-{}.bin", std::process::id()));
+    let path2 = path.clone();
+    let high = CoordPath::new([coord(5586), coord(256)]);
+    {
+        let origin = Box::new(FileOrigin::open(&path).unwrap());
+        let mut map = CoordMapStore::<2>::new(origin, 64);
+        map.put_path(&high, b"high-value").unwrap();
+        map.flush().unwrap();
+    }
+    {
+        let origin = Box::new(FileOrigin::open(&path2).unwrap());
+        let map = CoordMapStore::<2>::load(origin, 64).unwrap();
+        assert_eq!(
+            map.get_path(&high).unwrap().as_deref(),
+            Some(&b"high-value"[..])
+        );
+        let entries = map.iter().unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].0, CoordKey::new([coord(5586).index() as u8, 0]));
+    }
+    std::fs::remove_file(&path).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn full_range_keys_survive_mapped_reopen() {
+    let path = std::env::temp_dir().join(format!(
+        "chton-map-fullrange-mapped-{}.bin",
+        std::process::id()
+    ));
+    let path2 = path.clone();
+    let high = CoordPath::new([coord(5586), coord(256)]);
+    {
+        let origin = Box::new(MappedFileOrigin::open(&path).unwrap());
+        let mut map = CoordMapStore::<2>::new(origin, 64);
+        map.put_path(&high, b"mapped-value").unwrap();
+        map.flush().unwrap();
+    }
+    {
+        let origin = Box::new(MappedFileOrigin::open(&path2).unwrap());
+        let map = CoordMapStore::<2>::load(origin, 64).unwrap();
+        assert_eq!(
+            map.get_path(&high).unwrap().as_deref(),
+            Some(&b"mapped-value"[..])
+        );
+    }
+    std::fs::remove_file(&path).unwrap();
+}
+
+#[test]
 fn proximity_finds_nearby() {
     // The CoordCube query primitive over the materialized store: entries
     // within L-infinity radius of a center path.
