@@ -19,7 +19,7 @@ use alloc::vec::Vec;
 use tagma_map::coord_gen::CoordKey;
 
 use crate::cell::Cell2;
-use crate::io::{BufferIo, FileIo, IoFuture};
+use crate::io::{BufferIo, FileIo, IoFuture, ReadyIo};
 use crate::map::CoordMapStore;
 
 /// Maximum io depth. The path length prefix is one byte (1..=255), so a
@@ -114,6 +114,10 @@ impl<const N: usize> BufferIo for CoordMapStoreIo<N> {
         Box::pin(async move { map.borrow_mut().flush().map_err(|e| e.to_string()) })
     }
 }
+
+/// The store behind this channel is memory, and its flush is a write into the
+/// origin rather than a wait, so every operation completes on its first poll.
+impl<const N: usize> ReadyIo for CoordMapStoreIo<N> {}
 
 impl<const N: usize> FileIo for CoordMapStoreIo<N> {
     fn read<'a>(&'a self, path: &'a str) -> IoFuture<'a, Option<Vec<u8>>> {

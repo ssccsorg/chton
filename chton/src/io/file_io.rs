@@ -112,6 +112,100 @@ pub trait BatchIo: FileIo {
     fn apply_batch<'a>(&'a self, ops: &'a [WriteOp]) -> IoFuture<'a, ()>;
 }
 
+/// A channel whose operations complete on their first poll.
+///
+/// A device channel does its work without waiting: memory, a mapped page, and
+/// flash all do. Such a channel needs no executor, which is what lets a
+/// synchronous consumer poll it once and take the result, and a consumer that has
+/// no executor MUST only drive a channel that declares this. A channel that can
+/// suspend, such as a host file system behind an asynchronous runtime, makes no
+/// such claim and MUST be driven by its caller's own executor.
+///
+/// The declaration is a claim by the channel author and it is the whole of the
+/// surface: a consumer asks for it as a bound, `IO: ReadyIo`, and a channel that
+/// cannot make the claim stays out of that position. The claim is checkable, and
+/// `tests/io.rs` drives each operation of a channel that makes it once and
+/// requires it to be ready.
+pub trait ReadyIo: FileIo {}
+
+/// A channel whose writes are durable when they return.
+///
+/// [`BufferIo`] says that a consumer which needs durability binds to
+/// `FileIo + BufferIo` and flushes state itself. This wrapper is that binding for
+/// a consumer that would rather the write itself were durable, which is what a
+/// record layer and a C caller expect: the write they were told succeeded is on
+/// the medium.
+///
+/// Write and delete persist the channel's buffer when the operation left it
+/// holding state, and read and list are forwarded as they are. A channel that is
+/// already durable on write needs no wrapper, and wrapping one costs a check of
+/// `is_buffered` after each write and nothing else.
+///
+/// The wrapper adds no wait, so it inherits the readiness of the channel inside
+/// it: `Durable<A>` implements [`ReadyIo`] when `A` does.
+pub struct Durable<IO> {
+    inner: IO,
+}
+
+impl<IO> Durable<IO> {
+    /// Wrap a channel so that a write is durable when it returns.
+    pub fn new(inner: IO) -> Self {
+        Self { inner }
+    }
+
+    /// The channel inside, for the consumer that composed it and may want to
+    /// flush it directly.
+    pub fn inner(&self) -> &IO {
+        &self.inner
+    }
+}
+
+impl<IO: FileIo + BufferIo> Durable<IO> {
+    /// Persist the channel's buffer if the operation left it holding one.
+    async fn persist(&self) -> Result<(), String> {
+        if self.inner.is_buffered() {
+            self.inner.flush().await?;
+        }
+        Ok(())
+    }
+}
+
+impl<IO: FileIo + BufferIo> FileIo for Durable<IO> {
+    fn read<'a>(&'a self, path: &'a str) -> IoFuture<'a, Option<Vec<u8>>> {
+        self.inner.read(path)
+    }
+
+    fn write<'a>(&'a self, path: &'a str, data: &'a [u8]) -> IoFuture<'a, ()> {
+        Box::pin(async move {
+            self.inner.write(path, data).await?;
+            self.persist().await
+        })
+    }
+
+    fn list<'a>(&'a self, prefix: &'a str) -> IoFuture<'a, Vec<String>> {
+        self.inner.list(prefix)
+    }
+
+    fn delete<'a>(&'a self, path: &'a str) -> IoFuture<'a, ()> {
+        Box::pin(async move {
+            self.inner.delete(path).await?;
+            self.persist().await
+        })
+    }
+}
+
+impl<IO: FileIo + BufferIo> BufferIo for Durable<IO> {
+    fn is_buffered(&self) -> bool {
+        self.inner.is_buffered()
+    }
+
+    fn flush<'a>(&'a self) -> IoFuture<'a, ()> {
+        self.inner.flush()
+    }
+}
+
+impl<IO: FileIo + BufferIo + ReadyIo> ReadyIo for Durable<IO> {}
+
 /// Default apply_batch for any FileIo that does not implement BatchIo.
 /// Iterates sequentially over ops.
 pub async fn default_apply_batch(io: &impl FileIo, ops: &[WriteOp]) -> Result<(), String> {
