@@ -73,6 +73,38 @@ pub trait FileIo: Send + Sync {
     fn write<'a>(&'a self, path: &'a str, data: &'a [u8]) -> IoFuture<'a, ()>;
     fn list<'a>(&'a self, prefix: &'a str) -> IoFuture<'a, Vec<String>>;
     fn delete<'a>(&'a self, path: &'a str) -> IoFuture<'a, ()>;
+
+    /// Keys under `prefix` one page at a time, so a holder of the enumeration keeps a page
+    /// rather than the list.
+    ///
+    /// `cursor` is the token the previous call returned, or `None` to start. The call returns
+    /// at most `max` keys and the token that continues the enumeration, or `None` when the
+    /// enumeration is done. No order is promised, neither across the pages nor within one, so a
+    /// channel that can only enumerate in whatever order its medium holds is not asked for more.
+    ///
+    /// The default hands over every key in one call, which is what `list` already does, so an
+    /// implementor that cannot resume is not changed by this. A caller that needs a bounded page
+    /// asks for a channel that overrides it, and the portability of this method is the reason it
+    /// takes a cursor rather than a visitor: a visitor in the signature would carry the
+    /// cfg-conditional `Send` bound of [`IoFuture`], and every override would then need two
+    /// copies of itself.
+    ///
+    /// `max` is a bound the channel may honour. The default ignores it rather than dropping keys
+    /// it has no way to hand over later.
+    fn list_page<'a>(
+        &'a self,
+        prefix: &'a str,
+        cursor: Option<&'a [u8]>,
+        _max: usize,
+    ) -> IoFuture<'a, (Vec<String>, Option<Vec<u8>>)> {
+        Box::pin(async move {
+            if cursor.is_some() {
+                return Ok((Vec::new(), None));
+            }
+            let keys = self.list(prefix).await?;
+            Ok((keys, None))
+        })
+    }
 }
 
 #[cfg(target_family = "wasm")]
@@ -81,6 +113,38 @@ pub trait FileIo {
     fn write<'a>(&'a self, path: &'a str, data: &'a [u8]) -> IoFuture<'a, ()>;
     fn list<'a>(&'a self, prefix: &'a str) -> IoFuture<'a, Vec<String>>;
     fn delete<'a>(&'a self, path: &'a str) -> IoFuture<'a, ()>;
+
+    /// Keys under `prefix` one page at a time, so a holder of the enumeration keeps a page
+    /// rather than the list.
+    ///
+    /// `cursor` is the token the previous call returned, or `None` to start. The call returns
+    /// at most `max` keys and the token that continues the enumeration, or `None` when the
+    /// enumeration is done. No order is promised, neither across the pages nor within one, so a
+    /// channel that can only enumerate in whatever order its medium holds is not asked for more.
+    ///
+    /// The default hands over every key in one call, which is what `list` already does, so an
+    /// implementor that cannot resume is not changed by this. A caller that needs a bounded page
+    /// asks for a channel that overrides it, and the portability of this method is the reason it
+    /// takes a cursor rather than a visitor: a visitor in the signature would carry the
+    /// cfg-conditional `Send` bound of [`IoFuture`], and every override would then need two
+    /// copies of itself.
+    ///
+    /// `max` is a bound the channel may honour. The default ignores it rather than dropping keys
+    /// it has no way to hand over later.
+    fn list_page<'a>(
+        &'a self,
+        prefix: &'a str,
+        cursor: Option<&'a [u8]>,
+        _max: usize,
+    ) -> IoFuture<'a, (Vec<String>, Option<Vec<u8>>)> {
+        Box::pin(async move {
+            if cursor.is_some() {
+                return Ok((Vec::new(), None));
+            }
+            let keys = self.list(prefix).await?;
+            Ok((keys, None))
+        })
+    }
 }
 
 /// Optional buffering capability: vessels that hold buffered state
@@ -184,6 +248,17 @@ impl<IO: FileIo + BufferIo> FileIo for Durable<IO> {
 
     fn list<'a>(&'a self, prefix: &'a str) -> IoFuture<'a, Vec<String>> {
         self.inner.list(prefix)
+    }
+
+    /// Forwarded, so a wrapped channel keeps the paging it declared rather than falling back to
+    /// the default that hands over the list.
+    fn list_page<'a>(
+        &'a self,
+        prefix: &'a str,
+        cursor: Option<&'a [u8]>,
+        max: usize,
+    ) -> IoFuture<'a, (Vec<String>, Option<Vec<u8>>)> {
+        self.inner.list_page(prefix, cursor, max)
     }
 
     fn delete<'a>(&'a self, path: &'a str) -> IoFuture<'a, ()> {
