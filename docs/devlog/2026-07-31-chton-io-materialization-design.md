@@ -4,6 +4,7 @@ date: 2026-07-31
 status: draft
 project: Chton
 related:
+
 - tagma (syntagma)
 - neXus (ssccs-nexus2)
 
@@ -13,7 +14,7 @@ This document records the design meeting outcome for the chton IO layer. It
 supersedes the storage layer refactoring plan from 2026-07-27 with a finalized
 three-layer ontology. The work is a coordinated refactoring across three
 repositories: tagma (specification), chton (materialization), and nexus
-(semantics). 
+(semantics).
 
 ## Design Philosophy
 
@@ -118,7 +119,6 @@ paths; consumers see no change.
    the first protocol), mmap, checkpoint, and restore.
 4. nexus integration: dependency switch, then internal adapter swap. The
    trait surface stays unchanged.
-
 
 ### Future scope
 

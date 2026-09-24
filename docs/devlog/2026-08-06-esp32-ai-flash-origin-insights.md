@@ -4,6 +4,7 @@ date: 2026-08-06
 status: draft
 project: Chton
 related:
+
 - tagma (syntagma)
 - Chton development direction master (2026-08-01)
 - Chton IO materialization design (2026-07-31)

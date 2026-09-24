@@ -4,6 +4,7 @@ date: 2026-08-01
 status: draft
 project: Chton
 related:
+
 - tagma (syntagma)
 - neXus (ssccs-nexus2)
 - Chton IO materialization design (2026-07-31)
