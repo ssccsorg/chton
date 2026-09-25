@@ -886,12 +886,12 @@ dependencies = [
 [[package]]
 name = "tagma-core"
 version = "0.1.0"
-source = "git+https://github.com/ssccsorg/syntagma?branch=main#edcf275cfb4528b6377eea9b75800ce0ab3964f5"
+source = "git+https://github.com/ssccsorg/syntagma?branch=main"
 
 [[package]]
 name = "tagma-geo"
 version = "0.1.0"
-source = "git+https://github.com/ssccsorg/syntagma?branch=main#edcf275cfb4528b6377eea9b75800ce0ab3964f5"
+source = "git+https://github.com/ssccsorg/syntagma?branch=main"
 dependencies = [
  "tagma-core",
 ]
@@ -899,7 +899,7 @@ dependencies = [
 [[package]]
 name = "tagma-map"
 version = "0.1.0"
-source = "git+https://github.com/ssccsorg/syntagma?branch=main#edcf275cfb4528b6377eea9b75800ce0ab3964f5"
+source = "git+https://github.com/ssccsorg/syntagma?branch=main"
 dependencies = [
  "tagma-core",
  "tagma-geo",
