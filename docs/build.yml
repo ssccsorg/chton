@@ -62,7 +62,6 @@ exclude:
   - "**/_utils/"
   - "**/*_output/"
   - "**/*_files/"
-  - "**/*_cached/"
   - "**/*_libs/"
   - "**/*_pages/"
   - "**/.jupyter_cache"

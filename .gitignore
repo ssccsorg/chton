@@ -17,7 +17,7 @@
 # ============================================================
 # Quarto (docs)
 # ============================================================
-**/*_cached*
+**/.sdbtmp_*/
 **/*quarto_ipynb*
 /docs/**/*_files
 /docs/**/*_output
@@ -65,9 +65,9 @@
 # ============================================================
 # docs/build.py
 # ============================================================
-_docsbuild/
+# The folders sdbs writes for itself are ignored above: the .sdbtmp_ marker
+# covers the caches and the copy a parallel website build renders from.
 _agent/
 _pages/
-_jupyter_cache/
 *.aux
 benches/result/
