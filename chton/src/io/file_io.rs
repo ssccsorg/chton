@@ -245,6 +245,10 @@ pub async fn default_apply_batch(
 ///
 /// [`BlockingIo::apply_batch`] settles the set when it returns, as
 /// [`FileIo::apply_batch`] does.
+///
+/// Only a `std` build has an implementation, because a host that cannot await is
+/// the one that needs this surface. A `no_std` host drives the asynchronous one
+/// from its own executor.
 pub trait BlockingIo {
     fn read(&self, path: &str) -> Result<Option<Vec<u8>>, String>;
     fn write(&self, path: &str, data: &[u8]) -> Result<(), String>;
