@@ -235,12 +235,33 @@ pub async fn default_apply_batch(
     Ok(())
 }
 
+/// The operations a caller that cannot await asks a channel for.
+///
+/// [`FileIo`] is asynchronous. A host that already blocks needs the same
+/// operations in blocking form, and this is the surface it asks for.
+/// [`SyncFileIo`] provides it for an asynchronous channel, and a channel that is
+/// blocking by nature implements it directly, with no wrapper between the caller
+/// and the channel.
+///
+/// [`BlockingIo::apply_batch`] settles the set when it returns, as
+/// [`FileIo::apply_batch`] does.
+pub trait BlockingIo {
+    fn read(&self, path: &str) -> Result<Option<Vec<u8>>, String>;
+    fn write(&self, path: &str, data: &[u8]) -> Result<(), String>;
+    fn list(&self, prefix: &str) -> Result<Vec<String>, String>;
+    fn delete(&self, path: &str) -> Result<(), String>;
+    fn apply_batch(&self, ops: &[WriteOp]) -> Result<(), String>;
+}
+
 /// Wraps a FileIo into a blocking/sync interface.
 /// Uses futures_executor::block_on internally.
 ///
 /// Std-only: `block_on` needs an executor, which needs std. On no_std
 /// targets (MCU) callers drive the async `FileIo` methods directly from
 /// the launcher's own executor (e.g. embassy).
+///
+/// This is one provider of [`BlockingIo`], not the surface itself: an API takes
+/// the capability and this adapter is how an asynchronous channel answers it.
 #[cfg(feature = "std")]
 pub struct SyncFileIo<A: FileIo> {
     inner: A,
@@ -251,24 +272,29 @@ impl<A: FileIo> SyncFileIo<A> {
     pub fn new(inner: A) -> Self {
         Self { inner }
     }
+}
 
-    pub fn read(&self, path: &str) -> Result<Option<Vec<u8>>, String> {
+#[cfg(feature = "std")]
+impl<A: FileIo> BlockingIo for SyncFileIo<A> {
+    fn read(&self, path: &str) -> Result<Option<Vec<u8>>, String> {
         futures_executor::block_on(self.inner.read(path))
     }
 
-    pub fn write(&self, path: &str, data: &[u8]) -> Result<(), String> {
+    fn write(&self, path: &str, data: &[u8]) -> Result<(), String> {
         futures_executor::block_on(self.inner.write(path, data))
     }
 
-    pub fn list(&self, prefix: &str) -> Result<Vec<String>, String> {
+    fn list(&self, prefix: &str) -> Result<Vec<String>, String> {
         futures_executor::block_on(self.inner.list(prefix))
     }
 
-    pub fn delete(&self, path: &str) -> Result<(), String> {
+    fn delete(&self, path: &str) -> Result<(), String> {
         futures_executor::block_on(self.inner.delete(path))
     }
 
-    pub fn apply_batch(&self, ops: &[WriteOp]) -> Result<(), String> {
-        futures_executor::block_on(default_apply_batch(&self.inner, ops))
+    /// Forwarded, so the channel inside decides whether the set is one commit or
+    /// a settled run of writes.
+    fn apply_batch(&self, ops: &[WriteOp]) -> Result<(), String> {
+        futures_executor::block_on(self.inner.apply_batch(ops))
     }
 }
