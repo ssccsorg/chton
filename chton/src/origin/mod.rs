@@ -5,16 +5,22 @@
 //! protocol semantics. The capability matrix distinguishes address mode,
 //! direction, persistence, and binding, so that one surface accepts memory,
 //! file, signal, network, and GPU origins.
+//!
+//! A medium that erases before it writes again is [`BlockOrigin`] rather than
+//! an `Origin`: it needs the whole region as a view and an erase, and the byte
+//! seam has neither. [`AddressMode::Block`] names it.
 
 use core::error::Error;
 use core::fmt;
 
+mod block;
 #[cfg(feature = "std")]
 mod file;
 #[cfg(all(unix, feature = "std"))]
 mod mapped_file;
 mod memory;
 
+pub use block::{BlockOrigin, BlockSlice, ERASED};
 #[cfg(feature = "std")]
 pub use file::FileOrigin;
 #[cfg(all(unix, feature = "std"))]

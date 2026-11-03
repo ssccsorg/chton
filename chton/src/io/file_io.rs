@@ -105,6 +105,21 @@ pub trait FileIo: Send + Sync {
             Ok((keys, None))
         })
     }
+    /// Apply a set of operations, and settle them.
+    ///
+    /// This is the boundary at which a channel with a buffer pays its flush, so
+    /// when the call returns the operations are applied and, for a channel that
+    /// buffers, on the medium. [`FileIo::write`] applies one operation and
+    /// leaves the settle to the caller, which is why a write and a batch are not
+    /// interchangeable.
+    ///
+    /// The default applies the operations one at a time and does not flush, so a
+    /// channel that declares [`BufferIo`] must override this and settle at the
+    /// end. That is the one place where forgetting costs data rather than time,
+    /// and the gate is a test per such channel.
+    fn apply_batch<'a>(&'a self, ops: &'a [WriteOp]) -> IoFuture<'a, ()> {
+        Box::pin(async move { default_apply_batch(self, ops).await })
+    }
 }
 
 #[cfg(target_family = "wasm")]
@@ -145,6 +160,22 @@ pub trait FileIo {
             Ok((keys, None))
         })
     }
+
+    /// Apply a set of operations, and settle them.
+    ///
+    /// This is the boundary at which a channel with a buffer pays its flush, so
+    /// when the call returns the operations are applied and, for a channel that
+    /// buffers, on the medium. [`FileIo::write`] applies one operation and
+    /// leaves the settle to the caller, which is why a write and a batch are not
+    /// interchangeable.
+    ///
+    /// The default applies the operations one at a time and does not flush, so a
+    /// channel that declares [`BufferIo`] must override this and settle at the
+    /// end. That is the one place where forgetting costs data rather than time,
+    /// and the gate is a test per such channel.
+    fn apply_batch<'a>(&'a self, ops: &'a [WriteOp]) -> IoFuture<'a, ()> {
+        Box::pin(async move { default_apply_batch(self, ops).await })
+    }
 }
 
 /// Optional buffering capability: vessels that hold buffered state
@@ -164,17 +195,14 @@ pub trait BufferIo {
     fn flush<'a>(&'a self) -> IoFuture<'a, ()>;
 }
 
-/// Batch IO: lego trait for backends that support atomic batch commits.
-/// Separate from FileIo so callers can type-check batch support at compile time.
-#[cfg(not(target_family = "wasm"))]
-pub trait BatchIo: FileIo {
-    fn apply_batch<'a>(&'a self, ops: &'a [WriteOp]) -> IoFuture<'a, ()>;
-}
-
-#[cfg(target_family = "wasm")]
-pub trait BatchIo: FileIo {
-    fn apply_batch<'a>(&'a self, ops: &'a [WriteOp]) -> IoFuture<'a, ()>;
-}
+/// The claim that a channel's [`FileIo::apply_batch`] commits the set rather
+/// than applying it one operation at a time.
+///
+/// The trait carries no method, because the operation is on [`FileIo`]: every
+/// channel can apply a batch, and this is what a caller binds to when it needs
+/// the set to be one step. The claim is the channel author's, and a test holds
+/// it, as [`ReadyIo`] is held.
+pub trait BatchIo: FileIo {}
 
 /// A channel whose operations complete on their first poll.
 ///
@@ -192,98 +220,12 @@ pub trait BatchIo: FileIo {
 /// requires it to be ready.
 pub trait ReadyIo: FileIo {}
 
-/// A channel whose writes are durable when they return.
-///
-/// [`BufferIo`] says that a consumer which needs durability binds to
-/// `FileIo + BufferIo` and flushes state itself. This wrapper is that binding for
-/// a consumer that would rather the write itself were durable, which is what a
-/// record layer and a C caller expect: the write they were told succeeded is on
-/// the medium.
-///
-/// Write and delete persist the channel's buffer when the operation left it
-/// holding state, and read and list are forwarded as they are. A channel that is
-/// already durable on write needs no wrapper, and wrapping one costs a check of
-/// `is_buffered` after each write and nothing else.
-///
-/// The wrapper adds no wait, so it inherits the readiness of the channel inside
-/// it: `Durable<A>` implements [`ReadyIo`] when `A` does.
-pub struct Durable<IO> {
-    inner: IO,
-}
-
-impl<IO> Durable<IO> {
-    /// Wrap a channel so that a write is durable when it returns.
-    pub fn new(inner: IO) -> Self {
-        Self { inner }
-    }
-
-    /// The channel inside, for the consumer that composed it and may want to
-    /// flush it directly.
-    pub fn inner(&self) -> &IO {
-        &self.inner
-    }
-}
-
-impl<IO: FileIo + BufferIo> Durable<IO> {
-    /// Persist the channel's buffer if the operation left it holding one.
-    async fn persist(&self) -> Result<(), String> {
-        if self.inner.is_buffered() {
-            self.inner.flush().await?;
-        }
-        Ok(())
-    }
-}
-
-impl<IO: FileIo + BufferIo> FileIo for Durable<IO> {
-    fn read<'a>(&'a self, path: &'a str) -> IoFuture<'a, Option<Vec<u8>>> {
-        self.inner.read(path)
-    }
-
-    fn write<'a>(&'a self, path: &'a str, data: &'a [u8]) -> IoFuture<'a, ()> {
-        Box::pin(async move {
-            self.inner.write(path, data).await?;
-            self.persist().await
-        })
-    }
-
-    fn list<'a>(&'a self, prefix: &'a str) -> IoFuture<'a, Vec<String>> {
-        self.inner.list(prefix)
-    }
-
-    /// Forwarded, so a wrapped channel keeps the paging it declared rather than falling back to
-    /// the default that hands over the list.
-    fn list_page<'a>(
-        &'a self,
-        prefix: &'a str,
-        cursor: Option<&'a [u8]>,
-        max: usize,
-    ) -> IoFuture<'a, (Vec<String>, Option<Vec<u8>>)> {
-        self.inner.list_page(prefix, cursor, max)
-    }
-
-    fn delete<'a>(&'a self, path: &'a str) -> IoFuture<'a, ()> {
-        Box::pin(async move {
-            self.inner.delete(path).await?;
-            self.persist().await
-        })
-    }
-}
-
-impl<IO: FileIo + BufferIo> BufferIo for Durable<IO> {
-    fn is_buffered(&self) -> bool {
-        self.inner.is_buffered()
-    }
-
-    fn flush<'a>(&'a self) -> IoFuture<'a, ()> {
-        self.inner.flush()
-    }
-}
-
-impl<IO: FileIo + BufferIo + ReadyIo> ReadyIo for Durable<IO> {}
-
 /// Default apply_batch for any FileIo that does not implement BatchIo.
 /// Iterates sequentially over ops.
-pub async fn default_apply_batch(io: &impl FileIo, ops: &[WriteOp]) -> Result<(), String> {
+pub async fn default_apply_batch(
+    io: &(impl FileIo + ?Sized),
+    ops: &[WriteOp],
+) -> Result<(), String> {
     for op in ops {
         match op {
             WriteOp::Write { path, data } => io.write(path, data).await?,
@@ -293,12 +235,37 @@ pub async fn default_apply_batch(io: &impl FileIo, ops: &[WriteOp]) -> Result<()
     Ok(())
 }
 
+/// The operations a caller that cannot await asks a channel for.
+///
+/// [`FileIo`] is asynchronous. A host that already blocks needs the same
+/// operations in blocking form, and this is the surface it asks for.
+/// [`SyncFileIo`] provides it for an asynchronous channel, and a channel that is
+/// blocking by nature implements it directly, with no wrapper between the caller
+/// and the channel.
+///
+/// [`BlockingIo::apply_batch`] settles the set when it returns, as
+/// [`FileIo::apply_batch`] does.
+///
+/// Only a `std` build has an implementation, because a host that cannot await is
+/// the one that needs this surface. A `no_std` host drives the asynchronous one
+/// from its own executor.
+pub trait BlockingIo {
+    fn read(&self, path: &str) -> Result<Option<Vec<u8>>, String>;
+    fn write(&self, path: &str, data: &[u8]) -> Result<(), String>;
+    fn list(&self, prefix: &str) -> Result<Vec<String>, String>;
+    fn delete(&self, path: &str) -> Result<(), String>;
+    fn apply_batch(&self, ops: &[WriteOp]) -> Result<(), String>;
+}
+
 /// Wraps a FileIo into a blocking/sync interface.
 /// Uses futures_executor::block_on internally.
 ///
 /// Std-only: `block_on` needs an executor, which needs std. On no_std
 /// targets (MCU) callers drive the async `FileIo` methods directly from
 /// the launcher's own executor (e.g. embassy).
+///
+/// This is one provider of [`BlockingIo`], not the surface itself: an API takes
+/// the capability and this adapter is how an asynchronous channel answers it.
 #[cfg(feature = "std")]
 pub struct SyncFileIo<A: FileIo> {
     inner: A,
@@ -309,24 +276,29 @@ impl<A: FileIo> SyncFileIo<A> {
     pub fn new(inner: A) -> Self {
         Self { inner }
     }
+}
 
-    pub fn read(&self, path: &str) -> Result<Option<Vec<u8>>, String> {
+#[cfg(feature = "std")]
+impl<A: FileIo> BlockingIo for SyncFileIo<A> {
+    fn read(&self, path: &str) -> Result<Option<Vec<u8>>, String> {
         futures_executor::block_on(self.inner.read(path))
     }
 
-    pub fn write(&self, path: &str, data: &[u8]) -> Result<(), String> {
+    fn write(&self, path: &str, data: &[u8]) -> Result<(), String> {
         futures_executor::block_on(self.inner.write(path, data))
     }
 
-    pub fn list(&self, prefix: &str) -> Result<Vec<String>, String> {
+    fn list(&self, prefix: &str) -> Result<Vec<String>, String> {
         futures_executor::block_on(self.inner.list(prefix))
     }
 
-    pub fn delete(&self, path: &str) -> Result<(), String> {
+    fn delete(&self, path: &str) -> Result<(), String> {
         futures_executor::block_on(self.inner.delete(path))
     }
 
-    pub fn apply_batch(&self, ops: &[WriteOp]) -> Result<(), String> {
-        futures_executor::block_on(default_apply_batch(&self.inner, ops))
+    /// Forwarded, so the channel inside decides whether the set is one commit or
+    /// a settled run of writes.
+    fn apply_batch(&self, ops: &[WriteOp]) -> Result<(), String> {
+        futures_executor::block_on(self.inner.apply_batch(ops))
     }
 }

@@ -24,7 +24,7 @@ pub use coord_map_io::CoordMapStoreIo;
 #[cfg(feature = "std")]
 pub use file_io::SyncFileIo;
 pub use file_io::{
-    BatchIo, BufferIo, Durable, FileIo, IoFuture, ReadyIo, WriteOp, default_apply_batch,
+    BatchIo, BlockingIo, BufferIo, FileIo, IoFuture, ReadyIo, WriteOp, default_apply_batch,
 };
 #[cfg(all(
     feature = "std",

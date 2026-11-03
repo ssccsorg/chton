@@ -19,7 +19,7 @@ use alloc::vec::Vec;
 use tagma_map::coord_gen::CoordKey;
 
 use crate::cell::Cell2;
-use crate::io::{BufferIo, FileIo, IoFuture, ReadyIo};
+use crate::io::{BufferIo, FileIo, IoFuture, ReadyIo, WriteOp};
 use crate::map::CoordMapStore;
 
 /// Maximum io depth. The path length prefix is one byte (1..=255), so a
@@ -168,6 +168,35 @@ impl<const N: usize> FileIo for CoordMapStoreIo<N> {
                 .remove_path(&key.to_coord_path())
                 .map(|_| ())
                 .map_err(|e| e.to_string())
+        })
+    }
+
+    /// The map is where a write waits, so a batch is where it is paid for: the
+    /// operations go in and the buffer is flushed once at the end. A write on
+    /// its own leaves the buffer for the caller.
+    fn apply_batch<'a>(&'a self, ops: &'a [WriteOp]) -> IoFuture<'a, ()> {
+        let map = &self.map;
+        Box::pin(async move {
+            for op in ops {
+                match op {
+                    WriteOp::Write { path, data } => {
+                        let key = key_of::<N>(path)?;
+                        map.borrow_mut()
+                            .put_path(&key.to_coord_path(), &encode_value(path, data))
+                            .map_err(|e| e.to_string())?;
+                    }
+                    WriteOp::Delete { path } => {
+                        let key = key_of::<N>(path)?;
+                        map.borrow_mut()
+                            .remove_path(&key.to_coord_path())
+                            .map_err(|e| e.to_string())?;
+                    }
+                }
+            }
+            if self.is_buffered() {
+                self.flush().await?;
+            }
+            Ok(())
         })
     }
 }
