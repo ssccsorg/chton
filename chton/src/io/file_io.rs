@@ -283,6 +283,15 @@ impl<IO: FileIo + BufferIo> FileIo for Durable<IO> {
             self.persist().await
         })
     }
+
+    /// Forwarded, so a batch keeps whatever the channel inside does with it and
+    /// is persisted once rather than after every operation.
+    fn apply_batch<'a>(&'a self, ops: &'a [WriteOp]) -> IoFuture<'a, ()> {
+        Box::pin(async move {
+            self.inner.apply_batch(ops).await?;
+            self.persist().await
+        })
+    }
 }
 
 impl<IO: FileIo + BufferIo> BufferIo for Durable<IO> {
