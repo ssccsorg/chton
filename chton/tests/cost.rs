@@ -6,7 +6,7 @@
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use chton::io::{FileIo, FsIo, IoFuture, WriteOp, default_apply_batch};
+use chton::io::{BatchIo, FileIo, FsIo, IoFuture, WriteOp};
 use futures_executor::block_on;
 
 #[derive(Default)]
@@ -201,12 +201,69 @@ fn a_page_of_a_channel_that_does_not_page_is_one_call() {
     let _ = std::fs::remove_dir_all(dir);
 }
 
-#[test]
-fn the_default_batch_applies_one_operation_at_a_time() {
-    // The fallback the record layer reaches, because a `BatchIo` channel cannot
-    // be seen through a `FileIo` field. Issue #22 tracks the dispatch.
-    let (io, dir) = channel("batch");
-    let ops = [
+/// A channel that commits a whole set in one step, which is what `BatchIo` claims.
+struct Committing<IO> {
+    inner: IO,
+    commits: AtomicUsize,
+}
+
+impl<IO> Committing<IO> {
+    fn new(inner: IO) -> Self {
+        Self {
+            inner,
+            commits: AtomicUsize::new(0),
+        }
+    }
+
+    fn commits(&self) -> usize {
+        self.commits.load(Ordering::Relaxed)
+    }
+}
+
+impl<IO: FileIo> FileIo for Committing<IO> {
+    fn read<'a>(&'a self, path: &'a str) -> IoFuture<'a, Option<Vec<u8>>> {
+        self.inner.read(path)
+    }
+
+    fn write<'a>(&'a self, path: &'a str, data: &'a [u8]) -> IoFuture<'a, ()> {
+        self.inner.write(path, data)
+    }
+
+    fn list<'a>(&'a self, prefix: &'a str) -> IoFuture<'a, Vec<String>> {
+        self.inner.list(prefix)
+    }
+
+    fn delete<'a>(&'a self, path: &'a str) -> IoFuture<'a, ()> {
+        self.inner.delete(path)
+    }
+
+    fn list_page<'a>(
+        &'a self,
+        prefix: &'a str,
+        cursor: Option<&'a [u8]>,
+        max: usize,
+    ) -> IoFuture<'a, (Vec<String>, Option<Vec<u8>>)> {
+        self.inner.list_page(prefix, cursor, max)
+    }
+
+    fn apply_batch<'a>(&'a self, ops: &'a [WriteOp]) -> IoFuture<'a, ()> {
+        Box::pin(async move {
+            self.commits.fetch_add(1, Ordering::Relaxed);
+            for op in ops {
+                match op {
+                    WriteOp::Write { path, data } => self.inner.write(path, data).await?,
+                    WriteOp::Delete { path } => self.inner.delete(path).await?,
+                }
+            }
+            Ok(())
+        })
+    }
+}
+
+impl<IO: FileIo> BatchIo for Committing<IO> {}
+
+fn batch_ops() -> [WriteOp; 3] {
+    [
         WriteOp::Write {
             path: "facts/f_a.fact".to_string(),
             data: b"alpha".to_vec(),
@@ -218,16 +275,38 @@ fn the_default_batch_applies_one_operation_at_a_time() {
         WriteOp::Delete {
             path: "facts/f_a.fact".to_string(),
         },
-    ];
+    ]
+}
+
+#[test]
+fn a_channel_without_a_commit_applies_a_batch_one_operation_at_a_time() {
+    let (io, dir) = channel("batch-fallback");
+    let ops = batch_ops();
 
     block_on(async {
-        default_apply_batch(&io, &ops).await.expect("a batch");
+        io.apply_batch(&ops).await.expect("a batch");
         assert_eq!(io.writes(), 2, "the fallback stopped writing per operation");
         assert_eq!(
             io.deletes(),
             1,
             "the fallback stopped deleting per operation"
         );
+    });
+
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn a_channel_that_claims_a_commit_applies_a_batch_in_one_call() {
+    let (inner, dir) = channel("batch-commit");
+    let io = Committing::new(inner);
+    let ops = batch_ops();
+
+    block_on(async {
+        io.apply_batch(&ops).await.expect("a batch");
+        assert_eq!(io.commits(), 1, "the claim did not commit in one step");
+        assert_eq!(io.inner.writes(), 2, "the operations were not applied");
+        assert_eq!(io.inner.deletes(), 1, "the operations were not applied");
     });
 
     let _ = std::fs::remove_dir_all(dir);

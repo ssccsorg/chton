@@ -105,6 +105,15 @@ pub trait FileIo: Send + Sync {
             Ok((keys, None))
         })
     }
+    /// Apply a set of operations.
+    ///
+    /// The default applies them one at a time, which is what a channel that
+    /// cannot commit a set does. A channel that can commit overrides this and
+    /// implements [`BatchIo`], which is the claim a caller binds to when it
+    /// needs the set to be one step.
+    fn apply_batch<'a>(&'a self, ops: &'a [WriteOp]) -> IoFuture<'a, ()> {
+        Box::pin(async move { default_apply_batch(self, ops).await })
+    }
 }
 
 #[cfg(target_family = "wasm")]
@@ -145,6 +154,16 @@ pub trait FileIo {
             Ok((keys, None))
         })
     }
+
+    /// Apply a set of operations.
+    ///
+    /// The default applies them one at a time, which is what a channel that
+    /// cannot commit a set does. A channel that can commit overrides this and
+    /// implements [`BatchIo`], which is the claim a caller binds to when it
+    /// needs the set to be one step.
+    fn apply_batch<'a>(&'a self, ops: &'a [WriteOp]) -> IoFuture<'a, ()> {
+        Box::pin(async move { default_apply_batch(self, ops).await })
+    }
 }
 
 /// Optional buffering capability: vessels that hold buffered state
@@ -164,17 +183,14 @@ pub trait BufferIo {
     fn flush<'a>(&'a self) -> IoFuture<'a, ()>;
 }
 
-/// Batch IO: lego trait for backends that support atomic batch commits.
-/// Separate from FileIo so callers can type-check batch support at compile time.
-#[cfg(not(target_family = "wasm"))]
-pub trait BatchIo: FileIo {
-    fn apply_batch<'a>(&'a self, ops: &'a [WriteOp]) -> IoFuture<'a, ()>;
-}
-
-#[cfg(target_family = "wasm")]
-pub trait BatchIo: FileIo {
-    fn apply_batch<'a>(&'a self, ops: &'a [WriteOp]) -> IoFuture<'a, ()>;
-}
+/// The claim that a channel's [`FileIo::apply_batch`] commits the set rather
+/// than applying it one operation at a time.
+///
+/// The trait carries no method, because the operation is on [`FileIo`]: every
+/// channel can apply a batch, and this is what a caller binds to when it needs
+/// the set to be one step. The claim is the channel author's, and a test holds
+/// it, as [`ReadyIo`] is held.
+pub trait BatchIo: FileIo {}
 
 /// A channel whose operations complete on their first poll.
 ///
@@ -283,7 +299,10 @@ impl<IO: FileIo + BufferIo + ReadyIo> ReadyIo for Durable<IO> {}
 
 /// Default apply_batch for any FileIo that does not implement BatchIo.
 /// Iterates sequentially over ops.
-pub async fn default_apply_batch(io: &impl FileIo, ops: &[WriteOp]) -> Result<(), String> {
+pub async fn default_apply_batch(
+    io: &(impl FileIo + ?Sized),
+    ops: &[WriteOp],
+) -> Result<(), String> {
     for op in ops {
         match op {
             WriteOp::Write { path, data } => io.write(path, data).await?,
