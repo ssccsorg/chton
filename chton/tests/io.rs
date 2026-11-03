@@ -1,6 +1,6 @@
 // IO flow surface tests: the flat key-space FileIo contract.
 
-use chton::io::{BufferIo, CoordMapStoreIo, Durable, FileIo, FsIo, IoFuture, ReadyIo};
+use chton::io::{BufferIo, CoordMapStoreIo, FileIo, FsIo, IoFuture, ReadyIo, WriteOp};
 use chton::map::CoordMapStore;
 use chton::origin::MemoryOrigin;
 use futures_executor::block_on;
@@ -116,8 +116,8 @@ fn every_operation_of_a_declared_channel_is_ready_on_its_first_poll() {
 
 #[test]
 fn a_buffered_channel_holds_a_write_until_something_flushes_it() {
-    // Why the wrapper below exists: a write into the store is in the store, and
-    // the origin does not have it until a flush.
+    // A write applies one operation and leaves the settle to the caller, which
+    // is why a batch is not interchangeable with a run of writes.
     let io = memory_channel();
 
     block_on(async {
@@ -130,28 +130,44 @@ fn a_buffered_channel_holds_a_write_until_something_flushes_it() {
 }
 
 #[test]
-fn the_durable_wrapper_makes_a_write_durable_when_it_returns() {
-    let io = Durable::new(memory_channel());
+fn a_batch_settles_the_buffer_when_it_returns() {
+    // The batch is where a buffered channel pays its flush: once, at the end,
+    // rather than after each operation.
+    let io = memory_channel();
+    let ops = [
+        WriteOp::Write {
+            path: "facts/f_a.fact".to_string(),
+            data: b"alpha".to_vec(),
+        },
+        WriteOp::Write {
+            path: "facts/f_b.fact".to_string(),
+            data: b"beta".to_vec(),
+        },
+        WriteOp::Delete {
+            path: "facts/f_a.fact".to_string(),
+        },
+    ];
 
     block_on(async {
-        io.write("facts/f_a.fact", b"alpha").await.unwrap();
+        io.apply_batch(&ops).await.unwrap();
         assert!(
             !io.is_buffered(),
-            "the wrapper returned with state still buffered"
+            "the batch returned with state still buffered"
         );
+        assert!(io.read("facts/f_a.fact").await.unwrap().is_none());
         assert_eq!(
-            io.read("facts/f_a.fact").await.unwrap().as_deref(),
-            Some(&b"alpha"[..])
+            io.read("facts/f_b.fact").await.unwrap().as_deref(),
+            Some(&b"beta"[..])
         );
     });
 }
 
 #[test]
-fn the_wrapper_inherits_the_readiness_declaration() {
-    // A compile-time fact, held so that a wrapper that started waiting, or a
-    // channel that stopped declaring, fails here rather than in a device build.
+fn a_channel_declares_readiness_at_the_type_level() {
+    // A compile-time fact, held so that a channel that stopped declaring, or a
+    // declaration that started waiting, fails here rather than in a device build.
     fn requires_a_ready_channel<IO: ReadyIo>() {}
-    requires_a_ready_channel::<Durable<CoordMapStoreIo<16>>>();
+    requires_a_ready_channel::<CoordMapStoreIo<16>>();
 }
 
 // ── Paging a prefix's keys ────────────────────────────────────────────────
@@ -332,12 +348,4 @@ fn a_channel_that_pages_decides_where_a_page_ends() {
         listed.is_empty(),
         "the pages came from the default rather than from the override"
     );
-}
-
-/// The wrapper forwards the paging it wraps. Without this a wrapped device channel would fall
-/// back to the default and hand over the list the wrapper exists to keep it from holding.
-#[test]
-fn the_wrapper_keeps_the_paging_it_wraps() {
-    let io = Durable::new(paged_channel());
-    assert_eq!(block_on(collect_pages(&io, "facts/", 2)).len(), 4);
 }
