@@ -20,15 +20,15 @@
 **/.sdbtmp_*/
 **/_sdbtmp_*/
 **/*quarto_ipynb*
-/docs/**/*_files
-/docs/**/*_output
-/docs/**/*_extensions 
-/docs/**/*_llms
-/docs/**/*_libs
-/docs/**/*.tex
-/docs/**/*.pdf
-/docs/**/*.html
-/docs/**/*.c2pa_identifier.svg
+docs/**/*_files
+docs/**/*_output
+docs/**/*_extensions 
+docs/**/*_llms
+docs/**/*_libs
+docs/**/*.tex
+docs/**/*.pdf
+docs/**/*.html
+docs/**/*.c2pa_identifier.svg
 
 # Global Quarto
 **/*.quarto_ipynb
@@ -72,3 +72,5 @@ _agent/
 _pages/
 *.aux
 benches/result/
+
+*_cache*
