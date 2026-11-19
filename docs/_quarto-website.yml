@@ -1,5 +1,11 @@
 project:
   type: website
+  render:
+    - "**/*.qmd"
+    - "**/*.md"
+    - "!nexus/**"
+    - "!syntagma/**"
+    - "!chton/**"
   resources:
     - "**/*.c2pa"
   post-render:
